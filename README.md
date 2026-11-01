@@ -1,29 +1,51 @@
-# NYXVAULT — from-scratch learning assistant
+# NYXVAULT
 
-A small, transparent experimental AI project. It does **not** call an external model or API and does not download pretrained weights.
+**Created by:** Nyxvault Studio  
+**Owner:** Акрамзод Анас
 
-## Two modes
+NYXVAULT is an experimental local AI project built without external chat models, hosted inference APIs, or pretrained model weights.
 
-1. **Chat mode** — answers from the knowledge/examples already approved in the local data file. It never writes to training data and never changes weights.
-2. **Teacher mode** — password-protected. The owner can add question/answer examples and run training. The password is configured locally with the `NYXVAULT_TEACHER_PASSWORD` environment variable; never commit it.
+## Two separate modes
 
-## Honest scope
+- **Chat Mode:** read-only conversation using the locally trained knowledge index. It does not add examples or change the model.
+- **Teacher Mode:** requires the owner-set password. It accepts approved question/answer examples and rebuilds the local model when `/train` is run.
 
-This is a learning project, not a ChatGPT-level model. The first version uses a small model trained from random initialization and a transparent local knowledge store. It will only know what its training data teaches it. A genuinely capable general language model requires large datasets and substantial compute; GitHub Actions is for tests/builds, not unlimited training.
+## What "training" means in this version
 
-## Run locally
+The first learning engine is a transparent TF-IDF retrieval model trained from scratch on the project's own examples. It learns a vocabulary and weighted question vectors from `data/knowledge.jsonl`. It is **not yet a generative neural language model**, so it cannot freely reason or speak like a large assistant. That requires a much larger corpus and a separate neural-network training stage.
+
+The starter corpus emphasizes Python, C++, Godot, GDScript, GitHub, Android development, and the project's anime-style 3D RPG interests.
+
+## Run
+
+Python 3.10+:
 
 ```bash
-python -m pip install -r requirements.txt
-export NYXVAULT_TEACHER_PASSWORD='choose-a-long-private-password'
+python train.py
+```
+
+Set a private password locally, then start:
+
+Linux/macOS/Termux:
+```bash
+export NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
 python app.py
 ```
 
-On Android/Termux, set the environment variable in your local shell before running. Do not send the password in chat or store it in GitHub.
+Windows PowerShell:
+```powershell
+$env:NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
+python app.py
+```
 
-## Safety and privacy
+In Teacher Mode, add examples as:
 
-- Keep this repository **private** if it will contain personal training examples.
-- Never put passwords, API keys, private conversations, or personal data in Git.
-- Training examples are stored locally in `data/knowledge.jsonl`.
-- Chat mode is read-only. Teacher mode requires a password each time it is entered.
+```
+How do I make a player move in Godot? => Use CharacterBody3D...
+```
+
+Then run `/train` to rebuild the index. Chat Mode never trains or writes to the corpus.
+
+## Privacy
+
+Do not commit the Teacher Mode password, private conversations, personal data, or secret keys. Keep the repository private if you plan to add personal training material. The owner identity above is included as requested.
