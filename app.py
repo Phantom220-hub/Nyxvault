@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from nyxvault import Nyxvault, train
+from neural_brain import NeuralBrain, train_neural
 
 DATA = Path("data/knowledge.jsonl")
 INDEX = Path("data/model_index.json")
@@ -31,7 +32,9 @@ def teacher_mode() -> None:
             continue
         if line == "/train":
             stats = train(DATA, INDEX)
-            print(f"Обучение завершено: примеров {stats['examples']}, словарь {stats['vocabulary']}.")
+            neural = train_neural(DATA)
+            print(f"Индекс обновлён: {stats['examples']} примеров.")
+            print(f"Нейросеть обучена: {neural['characters']} символов; loss={neural['loss']}.")
             continue
         if "=>" not in line:
             print("Формат: вопрос => ответ")
@@ -47,12 +50,18 @@ def teacher_mode() -> None:
 
 def chat_mode() -> None:
     bot = Nyxvault(DATA, INDEX)
+    neural = NeuralBrain() if Path("data/neural_model.npz").exists() else None
     print("\nCHAT MODE — только чтение, обучение отключено. /exit — выход.")
     while True:
         question = input("Ты> ").strip()
         if question == "/exit":
             break
-        print("NYXVAULT>", bot.answer(question))
+        answer = bot.answer(question)
+        if answer.startswith("Я пока не знаю") and neural is not None:
+            generated = neural.generate("Вопрос: " + question + "\nОтвет:", max_new=160)
+            if generated:
+                answer = "[Экспериментальная генерация] " + generated
+        print("NYXVAULT>", answer)
 
 
 def main() -> None:

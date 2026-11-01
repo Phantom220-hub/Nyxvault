@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from nyxvault import Nyxvault, train
+from neural_brain import NeuralBrain, train_neural
 
 
 class NyxvaultTests(unittest.TestCase):
@@ -19,6 +20,22 @@ class NyxvaultTests(unittest.TestCase):
             self.assertEqual(stats["examples"], 1)
             bot = Nyxvault(data, index)
             self.assertIn("Godot", bot.answer("Как создать игру в Godot?"))
+
+    def test_neural_model_trains_and_generates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data = root / "knowledge.jsonl"
+            model = root / "neural_model.npz"
+            data.write_text(
+                '{"question":"Привет","answer":"Я NYXVAULT."}\n'
+                '{"question":"Что такое Python","answer":"Python — язык программирования."}\n',
+                encoding="utf-8",
+            )
+            stats = train_neural(data, model)
+            self.assertTrue(model.exists())
+            self.assertGreater(stats["characters"], 10)
+            bot = NeuralBrain(model)
+            self.assertIsInstance(bot.generate("Ответ:", max_new=8), str)
 
     def test_unknown_question_does_not_invent(self):
         with tempfile.TemporaryDirectory() as folder:
