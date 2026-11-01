@@ -197,6 +197,7 @@ class MainActivity : Activity() {
             .findAll(value.lowercase(Locale.ROOT).replace('ё', 'е')).map { it.value }.toSet()
 
     private fun findAnswer(question: String): String {
+        MathSolver.solve(question)?.let { return it }
         val q = tokenize(question)
         if (q.isEmpty()) return "Напиши вопрос — я попробую найти подходящий ответ."
         val docs = examples.map { tokenize(it.question) }
