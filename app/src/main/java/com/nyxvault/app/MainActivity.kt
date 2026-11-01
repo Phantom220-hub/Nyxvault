@@ -247,7 +247,7 @@ class MainActivity : Activity() {
     }
 
     private fun tokenize(value: String): Set<String> =
-        Regex("[a-zа-яё0-9_+#.]+", RegexOption.IGNORE_CASE)
+        Regex("[a-zа-яёӯғқҳҷӣ0-9_+#.]+", RegexOption.IGNORE_CASE)
             .findAll(value.lowercase(Locale.ROOT).replace('ё', 'е')).map { it.value }.toSet()
 
     private fun findAnswer(question: String): String {
@@ -382,6 +382,11 @@ class MainActivity : Activity() {
     private fun chooseSpeechLanguage() {
         AlertDialog.Builder(this).setTitle("Язык распознавания")
             .setItems(arrayOf("Русский", "Тоҷикӣ")) { _, which ->
+                val locale = if (which == 1) Locale("tg", "TJ") else Locale("ru", "RU")
+                val result = tts?.setLanguage(locale)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    toast("Синтез речи для выбранного языка не поддерживается этим TTS. Распознавание всё равно можно попробовать.")
+                }
                 startVoiceInput(if (which == 1) "tg-TJ" else "ru-RU")
             }.show()
     }
