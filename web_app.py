@@ -135,7 +135,7 @@ class Handler(BaseHTTPRequestHandler):
                         context + f"Вопрос: {question}\nОтвет:",
                         max_new=150, temperature=0.65, top_k=6
                     )
-                    if generated:
+                    if generated and neural.looks_plausible(generated, DATA):
                         answer = "[Экспериментальная RNN] " + generated
                 session["history"].append((question, answer))
                 session["history"] = session["history"][-4:]
