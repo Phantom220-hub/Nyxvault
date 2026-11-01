@@ -179,8 +179,21 @@ class MainActivity : Activity() {
     }
 
     private fun loadKnowledge() {
+        val bundled = assets.open("knowledge.jsonl").bufferedReader(Charsets.UTF_8).use { it.readLines() }
         if (!knowledgeFile.exists()) {
-            assets.open("knowledge.jsonl").bufferedReader(Charsets.UTF_8).use { knowledgeFile.writeText(it.readText(), Charsets.UTF_8) }
+            knowledgeFile.writeText(bundled.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+        } else {
+            // Upgrade existing installs without overwriting anything the user learned locally.
+            val knownQuestions = knowledgeFile.readLines(Charsets.UTF_8).mapNotNull { line ->
+                try { JSONObject(line).optString("question").trim().lowercase(Locale.ROOT) } catch (_: Exception) { null }
+            }.toMutableSet()
+            val additions = bundled.filter { line ->
+                try {
+                    val q = JSONObject(line).optString("question").trim().lowercase(Locale.ROOT)
+                    q.isNotEmpty() && knownQuestions.add(q)
+                } catch (_: Exception) { false }
+            }
+            if (additions.isNotEmpty()) knowledgeFile.appendText(additions.joinToString("\n", prefix = "\n", postfix = "\n"), Charsets.UTF_8)
         }
         examples = knowledgeFile.readLines(Charsets.UTF_8).mapNotNull { line ->
             try {
