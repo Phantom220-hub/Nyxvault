@@ -119,7 +119,7 @@ class MainActivity : Activity() {
                 .setItems(arrayOf("🎙 Распознать речь", if (voiceOutput) "Отключить озвучивание" else "Включить озвучивание")) { _, which ->
                     if (which == 0) chooseSpeechLanguage() else {
                         voiceOutput = !voiceOutput
-                        text = if (voiceOutput) "VOICE: ON" else "VOICE"
+                        voiceButton.text = if (voiceOutput) "VOICE: ON" else "VOICE"
                         if (!voiceOutput) tts?.stop()
                     }
                 }.show()
@@ -176,7 +176,14 @@ class MainActivity : Activity() {
         input.text.clear()
         addMessage(question, true)
         if (handleMemoryCommand(question)) return
-        val local = findAnswer(question)
+        var local = findAnswer(question)
+        val questionTokens = tokenize(question)
+        val relevantMemory = memoryStore.all().filter { fact ->
+            tokenize(fact).intersect(questionTokens).size >= 2
+        }.take(3)
+        if (relevantMemory.isNotEmpty()) {
+            local += "\n\nКОНТЕКСТ ИЗ ТВОЕЙ ПАМЯТИ:\n" + relevantMemory.joinToString("\n")
+        }
         if (!webEnabled) {
             addMessage(local, false)
             return
@@ -184,7 +191,14 @@ class MainActivity : Activity() {
         busy = true
         status.text = "● NYXVAULT THINKING  •  ищу свежие источники..."
         Thread {
-            val hits = try { WebResearch.search(question) } catch (_: Exception) { emptyList() }
+            val searchQuery = when (currentMode) {
+                "Учитель" -> "$question пошаговое объяснение учебный материал"
+                "Разработчик" -> "$question programming documentation code examples"
+                "Исследователь" -> "$question research scientific sources"
+                "Детектив" -> "$question logical analysis evidence contradictions"
+                else -> question
+            }
+            val hits = try { WebResearch.search(searchQuery) } catch (_: Exception) { emptyList() }
             runOnUiThread {
                 val response = if (hits.isEmpty()) {
                     "$local\n\nНе удалось получить свежие данные из интернета. Проверь подключение или выключи WEB."
@@ -343,7 +357,7 @@ class MainActivity : Activity() {
         }
         if (listOf("что ты помнишь", "покажи память", "мои заметки", "что сохранено").any { lower.contains(it) }) {
             val facts = memoryStore.all()
-            addMessage(if (facts.isEmpty()) "Пока память пуста. Напиши: «Запомни: ...»" else "МОЯ ДОЛГОВРЕМЕННАЯ ПАМЯТЬ\\n" + facts.mapIndexed { i, v -> "${i + 1}. $v" }.joinToString("\\n"), false)
+            addMessage(if (facts.isEmpty()) "Пока память пуста. Напиши: «Запомни: ...»" else "МОЯ ДОЛГОВРЕМЕННАЯ ПАМЯТЬ\\n" + facts.mapIndexed { i, v -> "${i + 1}. $v" }.joinToString("\n"), false)
             return true
         }
         return false
@@ -422,6 +436,12 @@ class MainActivity : Activity() {
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
         }
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
     }
 
     private fun updateStatus() {
