@@ -36,6 +36,9 @@ class MainActivity : Activity() {
     private lateinit var knowledgeFile: File
     private var examples = mutableListOf<Example>()
     private var teacherUnlocked = false
+    private var webEnabled = true
+    private var busy = false
+    private lateinit var webButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,7 +65,7 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
         })
         root.addView(TextView(this).apply {
-            text = "PERSONAL OFFLINE AI  •  VERSION 0.1"
+            text = "PERSONAL AI  •  LOCAL BRAIN + LIVE WEB RESEARCH"
             textSize = 10f
             letterSpacing = 0.12f
             setTextColor(muted)
@@ -77,8 +80,14 @@ class MainActivity : Activity() {
             background = rounded(accent, 18)
             setPadding(dp(12), dp(10), dp(12), dp(10))
         })
-        val teacher = makeButton("TEACHER MODE").apply { textSize = 11f; setOnClickListener { openTeacherGate() } }
-        topRow.addView(teacher, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) })
+        val teacher = makeButton("TEACHER").apply { textSize = 10f; setOnClickListener { openTeacherGate() } }
+        topRow.addView(teacher, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
+        webButton = makeButton("WEB: ON").apply { textSize = 10f; setOnClickListener {
+            webEnabled = !webEnabled
+            text = if (webEnabled) "WEB: ON" else "WEB: OFF"
+            updateStatus()
+        } }
+        topRow.addView(webButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
         root.addView(topRow)
 
         val card = LinearLayout(this).apply {
@@ -126,10 +135,30 @@ class MainActivity : Activity() {
 
     private fun sendMessage() {
         val question = input.text.toString().trim()
-        if (question.isEmpty()) return
+        if (question.isEmpty() || busy) return
         input.text.clear()
         addMessage(question, true)
-        addMessage(findAnswer(question), false)
+        val local = findAnswer(question)
+        if (!webEnabled) {
+            addMessage(local, false)
+            return
+        }
+        busy = true
+        status.text = "● NYXVAULT THINKING  •  ищу свежие источники..."
+        Thread {
+            val hits = try { WebResearch.search(question) } catch (_: Exception) { emptyList() }
+            runOnUiThread {
+                val response = if (hits.isEmpty()) {
+                    "$local\\n\\nНе удалось получить свежие данные из интернета. Проверь подключение или выключи WEB."
+                } else {
+                    val sources = hits.take(5).joinToString("\\n\\n") { "• ${it.title}\\n${it.snippet}\\n${it.url}" }
+                    "РЕЗУЛЬТАТ ИССЛЕДОВАНИЯ\\nЯ нашёл материалы в интернете. Сверяй важные факты по первоисточникам.\\n\\nЛокальная база: $local\\n\\nИСТОЧНИКИ\\n$sources\\n\\nВажно: это найденные страницы и краткие фрагменты, а не гарантия истинности. Для спорных тем нужно сравнивать несколько независимых источников."
+                }
+                addMessage(response, false)
+                busy = false
+                updateStatus()
+            }
+        }.start()
     }
 
     private fun addMessage(value: String, fromUser: Boolean) {
@@ -247,7 +276,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateStatus() {
-        status.text = "● OFFLINE  •  ${examples.size} знаний  •  данные хранятся на устройстве"
+        status.text = "● ${if (webEnabled) "WEB RESEARCH ON" else "OFFLINE MODE"}  •  ${examples.size} локальных знаний  •  ${if (busy) "анализ..." else "готов"}"
     }
 
     private fun makeButton(label: String) = Button(this).apply {
