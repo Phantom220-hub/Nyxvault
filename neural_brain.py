@@ -12,7 +12,7 @@ DATA = Path("data/knowledge.jsonl")
 MODEL = Path("data/neural_model.npz")
 SEQ_LEN = 32
 HIDDEN = 64
-EPOCHS = 40
+EPOCHS = 100
 LEARNING_RATE = 0.003
 MAX_CORPUS_CHARS = 50000
 
