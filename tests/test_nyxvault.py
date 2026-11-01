@@ -31,9 +31,10 @@ class NyxvaultTests(unittest.TestCase):
                 '{"question":"Что такое Python","answer":"Python — язык программирования."}\n',
                 encoding="utf-8",
             )
-            stats = train_neural(data, model)
+            stats = train_neural(data, model, epochs=2)
             self.assertTrue(model.exists())
             self.assertGreater(stats["characters"], 10)
+            self.assertEqual(stats["architecture"], "vanilla_rnn")
             bot = NeuralBrain(model)
             self.assertIsInstance(bot.generate("Ответ:", max_new=8), str)
 
