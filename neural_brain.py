@@ -13,7 +13,7 @@ MODEL = Path("data/neural_model.npz")
 SEQ_LEN = 32
 HIDDEN = 64
 EPOCHS = 40
-LEARNING_RATE = 0.08
+LEARNING_RATE = 0.003
 MAX_CORPUS_CHARS = 50000
 
 
@@ -116,7 +116,7 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
                 adam_v[i] = 0.999 * adam_v[i] + 0.001 * (grad * grad)
                 m_hat = adam_m[i] / (1.0 - 0.9 ** adam_step)
                 v_hat = adam_v[i] / (1.0 - 0.999 ** adam_step)
-                param -= 0.003 * m_hat / (np.sqrt(v_hat) + 1e-8)
+                param -= LEARNING_RATE * m_hat / (np.sqrt(v_hat) + 1e-8)
             epoch_loss += loss / SEQ_LEN
             batches += 1
         final_loss = epoch_loss / max(1, batches)
