@@ -3,72 +3,104 @@ import hmac
 import os
 from pathlib import Path
 
-from nyxvault import Nyxvault, train
+from nyxvault import Nyxvault, train, load_examples
 from neural_brain import NeuralBrain, train_neural
 
 DATA = Path("data/knowledge.jsonl")
 INDEX = Path("data/model_index.json")
+MODEL = Path("data/neural_model.npz")
 
 
 def teacher_mode() -> None:
     expected = os.environ.get("NYXVAULT_TEACHER_PASSWORD")
     if not expected:
-        print("Teacher Mode заблокирован. Сначала задай NYXVAULT_TEACHER_PASSWORD в локальном окружении.")
+        print("Teacher Mode заблокирован. Задай NYXVAULT_TEACHER_PASSWORD в локальном окружении.")
         return
     supplied = getpass.getpass("Пароль Teacher Mode: ")
     if not hmac.compare_digest(supplied, expected):
         print("Неверный пароль.")
         return
 
-    print("\nTEACHER MODE — обучение NYXVAULT. Команды: /train, /count, /exit")
-    print("Добавляй материал в формате: вопрос => правильный ответ")
+    print("\nTEACHER MODE — обучение NYXVAULT.")
+    print("Команды: /train, /count, /help, /exit")
+    print("Материал добавляется в формате: вопрос => правильный ответ")
     while True:
-        line = input("Учитель> ").strip()
+        try:
+            line = input("Учитель> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nВыход из Teacher Mode.")
+            break
         if line == "/exit":
             break
+        if line == "/help":
+            print("/train — переобучить модели; /count — число примеров; /exit — выход.")
+            print("Добавление: вопрос => ответ. Добавляй только проверенные факты.")
+            continue
         if line == "/count":
-            from nyxvault import load_examples
             print("Примеров в учебной базе:", len(load_examples(DATA)))
             continue
         if line == "/train":
-            stats = train(DATA, INDEX)
-            neural = train_neural(DATA)
-            print(f"Индекс обновлён: {stats['examples']} примеров.")
-            print(f"Нейросеть обучена: {neural['characters']} символов; loss={neural['loss']}.")
+            try:
+                stats = train(DATA, INDEX)
+                neural = train_neural(DATA, MODEL)
+                print(f"Индекс: {stats['examples']} примеров, словарь {stats['vocabulary']}.")
+                print(f"RNN обучена: {neural['characters']} символов, {neural['epochs']} эпох, loss={neural['loss']}.")
+            except (ValueError, OSError) as error:
+                print("Не удалось обучить модель:", error)
             continue
         if "=>" not in line:
-            print("Формат: вопрос => ответ")
+            print("Формат: вопрос => ответ. Для помощи введи /help.")
             continue
         question, answer = (part.strip() for part in line.split("=>", 1))
         if not question or not answer:
             print("Нужны и вопрос, и ответ.")
             continue
+        if len(question) > 1000 or len(answer) > 4000:
+            print("Слишком длинный пример: максимум 1000 символов в вопросе и 4000 в ответе.")
+            continue
         bot = Nyxvault(DATA, INDEX)
         bot.teach(question, answer)
-        print("Пример сохранён. Выполни /train, чтобы обновить модель.")
+        print("Пример сохранён локально. Выполни /train, чтобы обновить модели.")
 
 
 def chat_mode() -> None:
     bot = Nyxvault(DATA, INDEX)
-    neural = NeuralBrain() if Path("data/neural_model.npz").exists() else None
-    print("\nCHAT MODE — только чтение, обучение отключено. /exit — выход.")
+    neural = NeuralBrain(MODEL) if MODEL.exists() else None
+    history = []
+    print("\nCHAT MODE — знания не изменяются. /clear — очистить контекст, /exit — выход.")
     while True:
-        question = input("Ты> ").strip()
+        try:
+            question = input("Ты> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nВыход из Chat Mode.")
+            break
         if question == "/exit":
             break
+        if question == "/clear":
+            history.clear()
+            print("Контекст текущего разговора очищен.")
+            continue
+        if not question:
+            continue
+
         answer = bot.answer(question)
         if answer.startswith("Я пока не знаю") and neural is not None:
-            generated = neural.generate("Вопрос: " + question + "\nОтвет:", max_new=160)
+            recent = history[-4:]
+            context = "".join(f"Вопрос: {q}\nОтвет: {a}\n" for q, a in recent)
+            prompt = context + f"Вопрос: {question}\nОтвет:"
+            generated = neural.generate(prompt, max_new=160, temperature=0.7, top_k=6)
             if generated:
-                answer = "[Экспериментальная генерация] " + generated
+                answer = "[Экспериментальная RNN-генерация] " + generated
         print("NYXVAULT>", answer)
+        history.append((question, answer))
+        history = history[-4:]
 
 
 def main() -> None:
     print("NYXVAULT")
     print("Создатель: Nyxvault Studio")
     print("Владелец: Акрамзод Анас")
-    print("\n1. Chat Mode — обычное общение, без обучения")
+    print("\n1. Chat Mode — общение с временным контекстом")
     print("2. Teacher Mode — обучение под паролем")
     choice = input("Выбери режим: ").strip()
     if choice == "1":
