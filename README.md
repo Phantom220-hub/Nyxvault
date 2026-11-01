@@ -12,9 +12,9 @@ NYXVAULT is an experimental local AI project built without external chat models,
 
 ## What "training" means in this version
 
-The project now contains two learning components: a transparent TF-IDF retrieval index and a small character-level neural network (MLP) trained from random weights using NumPy and the project's own corpus. This is an educational mini-model, not a modern large language model; generated text may be inaccurate or incoherent. It does not use external models, APIs, or pretrained weights.
+The project now contains two learning components: a transparent TF-IDF retrieval index and a character-level vanilla RNN trained from random weights using NumPy and the project's own corpus. This is an educational mini-model with a bounded training workload for modest devices, not a modern large language model; generated text may be inaccurate or incoherent. It does not use external models, APIs, or pretrained weights.
 
-The starter corpus emphasizes Python, C++, Godot, GDScript, GitHub, Android development, and the project's anime-style 3D RPG interests.
+The local corpus now includes programming fundamentals, Python, C++, algorithms, Git/GitHub, testing, Godot 3D, Android optimization, game graphics, and neural-network basics. Chat Mode keeps up to four recent exchanges in temporary session context; `/clear` removes that context.
 
 ## Run
 
