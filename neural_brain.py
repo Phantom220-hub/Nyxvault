@@ -12,7 +12,7 @@ DATA = Path("data/knowledge.jsonl")
 MODEL = Path("data/neural_model.npz")
 SEQ_LEN = 32
 HIDDEN = 64
-EPOCHS = 30
+EPOCHS = 15
 LEARNING_RATE = 0.08
 MAX_CORPUS_CHARS = 50000
 
@@ -59,7 +59,8 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
     by = np.zeros((vocab, 1), dtype=np.float32)
 
     # Deterministic, bounded sequence training.
-    starts = np.arange(0, len(encoded) - SEQ_LEN - 1, max(1, SEQ_LEN // 2))
+    stride = max(SEQ_LEN // 2, int(np.ceil(len(encoded) / 160)))
+    starts = np.arange(0, len(encoded) - SEQ_LEN - 1, stride)
     final_loss = 0.0
     completed_epochs = max(1, int(epochs))
     for epoch in range(completed_epochs):
