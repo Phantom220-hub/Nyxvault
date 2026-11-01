@@ -25,7 +25,7 @@ python -m pip install -r requirements.txt
 python train.py
 ```
 
-Set a private password locally, then start:
+### Browser interface (Android / desktop)\n\nStart the local web app:\n\n```bash\npython web_app.py\n```\n\nOpen `http://127.0.0.1:8765` in the same device's browser. The server binds only to localhost and keeps chat history in temporary session memory. To enable Teacher Mode, set the password environment variable before starting the server.\n\nSet a private password locally, then start:
 
 Linux/macOS/Termux:
 ```bash
