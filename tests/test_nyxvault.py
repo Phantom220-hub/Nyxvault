@@ -27,8 +27,8 @@ class NyxvaultTests(unittest.TestCase):
             data = root / "knowledge.jsonl"
             model = root / "neural_model.npz"
             data.write_text(
-                '{"question":"Привет","answer":"Я NYXVAULT."}\\n'
-                '{"question":"Что такое Python","answer":"Python — язык программирования."}\\n',
+                '{"question":"Привет","answer":"Я NYXVAULT."}\n'
+                '{"question":"Что такое Python","answer":"Python — язык программирования."}\n',
                 encoding="utf-8",
             )
             stats = train_neural(data, model)
