@@ -9,7 +9,7 @@ if __name__ == "__main__":
     retrieval = train()
     neural = train_neural()
     brain = NeuralBrain()
-    sample = brain.generate("Вопрос: Что такое Python?\nОтвет:", max_new=100, temperature=0.65)
+    sample = brain.generate("Вопрос: Что такое Python?\nОтвет:", max_new=100, temperature=0.35, top_k=1)
     report = {
         "retrieval_examples": retrieval["examples"],
         "retrieval_vocabulary": retrieval["vocabulary"],
