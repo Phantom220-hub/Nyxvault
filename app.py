@@ -89,7 +89,7 @@ def chat_mode() -> None:
             context = "".join(f"Вопрос: {q}\nОтвет: {a}\n" for q, a in recent)
             prompt = context + f"Вопрос: {question}\nОтвет:"
             generated = neural.generate(prompt, max_new=160, temperature=0.7, top_k=6)
-            if generated:
+            if generated and neural.looks_plausible(generated, DATA):
                 answer = "[Экспериментальная RNN-генерация] " + generated
         print("NYXVAULT>", answer)
         history.append((question, answer))
