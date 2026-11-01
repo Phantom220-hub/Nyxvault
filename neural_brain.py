@@ -12,7 +12,7 @@ DATA = Path("data/knowledge.jsonl")
 MODEL = Path("data/neural_model.npz")
 SEQ_LEN = 32
 HIDDEN = 64
-EPOCHS = 15
+EPOCHS = 40
 LEARNING_RATE = 0.08
 MAX_CORPUS_CHARS = 50000
 
@@ -59,8 +59,12 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
     by = np.zeros((vocab, 1), dtype=np.float32)
 
     # Deterministic, bounded sequence training.
-    stride = max(SEQ_LEN // 2, int(np.ceil(len(encoded) / 160)))
+    stride = max(SEQ_LEN // 2, int(np.ceil(len(encoded) / 256)))
     starts = np.arange(0, len(encoded) - SEQ_LEN - 1, stride)
+    params = [wxh, whh, why, bh, by]
+    adam_m = [np.zeros_like(p) for p in params]
+    adam_v = [np.zeros_like(p) for p in params]
+    adam_step = 0
     final_loss = 0.0
     completed_epochs = max(1, int(epochs))
     for epoch in range(completed_epochs):
@@ -99,13 +103,20 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
                 d_whh += dh_raw @ hs[t - 1].T
                 dh_next = whh.T @ dh_raw
 
-            for grad in (d_wxh, d_whh, d_why, d_bh, d_by):
-                np.clip(grad, -5.0, 5.0, out=grad)
-            wxh -= LEARNING_RATE * d_wxh
-            whh -= LEARNING_RATE * d_whh
-            why -= LEARNING_RATE * d_why
-            bh -= LEARNING_RATE * d_bh
-            by -= LEARNING_RATE * d_by
+            grads = [d_wxh, d_whh, d_why, d_bh, d_by]
+            for grad in grads:
+                grad /= SEQ_LEN
+            grad_norm = np.sqrt(sum(float(np.sum(grad * grad)) for grad in grads))
+            if grad_norm > 1.0:
+                for grad in grads:
+                    grad *= 1.0 / grad_norm
+            adam_step += 1
+            for i, (param, grad) in enumerate(zip(params, grads)):
+                adam_m[i] = 0.9 * adam_m[i] + 0.1 * grad
+                adam_v[i] = 0.999 * adam_v[i] + 0.001 * (grad * grad)
+                m_hat = adam_m[i] / (1.0 - 0.9 ** adam_step)
+                v_hat = adam_v[i] / (1.0 - 0.999 ** adam_step)
+                param -= 0.003 * m_hat / (np.sqrt(v_hat) + 1e-8)
             epoch_loss += loss / SEQ_LEN
             batches += 1
         final_loss = epoch_loss / max(1, batches)
