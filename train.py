@@ -4,9 +4,10 @@ from pathlib import Path
 
 from nyxvault import train
 from neural_brain import NeuralBrain, train_neural
+import web_app
 
 if __name__ == "__main__":
-    retrieval = train()
+    assert web_app.PAGE.startswith("<!doctype html>")\n    retrieval = train()
     neural = train_neural()
     brain = NeuralBrain()
     sample = brain.generate("Вопрос: Что такое Python?\nОтвет:", max_new=100, temperature=0.35, top_k=1)
