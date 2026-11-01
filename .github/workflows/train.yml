@@ -21,12 +21,13 @@ jobs:
         run: python train.py
       - name: Run tests
         run: python -m unittest discover -s tests -v
-      - name: Save trained model index
+      - name: Save trained models and training report
         uses: actions/upload-artifact@v4
         with:
           name: nyxvault-trained-models
           path: |
             data/model_index.json
             data/neural_model.npz
+            data/training_report.json
           if-no-files-found: error
           retention-days: 14
