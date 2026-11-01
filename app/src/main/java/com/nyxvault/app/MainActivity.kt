@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private lateinit var modeButton: Button
     private var currentMode = "Обычный"
     private var voiceOutput = false
+    private var pendingSpeechLanguage = "ru-RU"
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private val speechRequestCode = 7042
@@ -113,11 +114,16 @@ class MainActivity : Activity() {
         toolsRow.addView(modeButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7); marginEnd = dp(5) })
         val memory = makeButton("MEMORY").apply { textSize = 10f; setOnClickListener { showMemory() } }
         toolsRow.addView(memory, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7); marginEnd = dp(5) })
-        voiceButton = makeButton("VOICE: OFF").apply { textSize = 10f; setOnClickListener {
-            voiceOutput = !voiceOutput
-            text = if (voiceOutput) "VOICE: ON" else "VOICE: OFF"
-            if (!voiceOutput) tts?.stop()
-        }; setOnLongClickListener { chooseSpeechLanguage(); true } }
+        voiceButton = makeButton("VOICE").apply { textSize = 10f; setOnClickListener {
+            AlertDialog.Builder(this@MainActivity).setTitle("Голосовой режим")
+                .setItems(arrayOf("🎙 Распознать речь", if (voiceOutput) "Отключить озвучивание" else "Включить озвучивание")) { _, which ->
+                    if (which == 0) chooseSpeechLanguage() else {
+                        voiceOutput = !voiceOutput
+                        text = if (voiceOutput) "VOICE: ON" else "VOICE"
+                        if (!voiceOutput) tts?.stop()
+                    }
+                }.show()
+        } }
         toolsRow.addView(voiceButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7) })
         root.addView(toolsRow)
 
@@ -382,6 +388,7 @@ class MainActivity : Activity() {
 
     private fun startVoiceInput(language: String) {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingSpeechLanguage = language
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), audioPermissionCode)
             return
         }
@@ -399,7 +406,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == audioPermissionCode && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            startVoiceInput("ru-RU")
+            startVoiceInput(pendingSpeechLanguage)
         } else if (requestCode == audioPermissionCode) toast("Доступ к микрофону не предоставлен.")
     }
 
