@@ -176,6 +176,7 @@ class MainActivity : Activity() {
         input.text.clear()
         addMessage(question, true)
         if (handleMemoryCommand(question)) return
+        AcademyEngine.respond(question)?.let { addMessage(it, false); return }
         var local = findAnswer(question)
         val questionTokens = tokenize(question)
         val relevantMemory = memoryStore.all().filter { fact ->
