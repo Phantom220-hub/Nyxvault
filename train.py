@@ -1,9 +1,13 @@
-"""Train/rebuild NYXVAULT's local retrieval model from its approved corpus."""
+"""Train both NYXVAULT learning systems."""
 from nyxvault import train
+from neural_brain import train_neural
 
 if __name__ == "__main__":
-    result = train()
+    retrieval = train()
+    neural = train_neural()
     print("NYXVAULT training complete")
-    print("Examples:", result["examples"])
-    print("Vocabulary:", result["vocabulary"])
-    print("Index:", result["index"])
+    print("Retrieval examples:", retrieval["examples"])
+    print("Neural characters:", neural["characters"])
+    print("Neural vocabulary:", neural["vocabulary"])
+    print("Neural epochs:", neural["epochs"])
+    print("Neural loss:", neural["loss"])
