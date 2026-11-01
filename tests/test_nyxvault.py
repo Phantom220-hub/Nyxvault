@@ -37,6 +37,8 @@ class NyxvaultTests(unittest.TestCase):
             self.assertEqual(stats["architecture"], "vanilla_rnn")
             bot = NeuralBrain(model)
             self.assertIsInstance(bot.generate("Ответ:", max_new=8), str)
+            self.assertFalse(bot.looks_plausible("зювтоп шшщщк лллпп", data))
+            self.assertTrue(bot.looks_plausible("Привет Я NYXVAULT", data))
 
     def test_unknown_question_does_not_invent(self):
         with tempfile.TemporaryDirectory() as folder:
