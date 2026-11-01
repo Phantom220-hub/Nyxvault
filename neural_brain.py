@@ -4,6 +4,7 @@ This is an educational recurrent network, not a modern large language model.
 It uses only the project's local JSONL corpus and does not download model weights.
 """
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -182,3 +183,13 @@ class NeuralBrain:
             if self.chars[next_id] == "\n":
                 break
         return "".join(output).strip()
+
+    def looks_plausible(self, text, data_path=DATA, min_known_ratio=0.55):
+        """Reject obvious character-noise generations instead of presenting them as answers."""
+        generated_words = re.findall(r"[a-zа-яё]+", str(text).casefold())
+        if len(generated_words) < 3:
+            return False
+        corpus = load_corpus(data_path).casefold()
+        known_words = set(re.findall(r"[a-zа-яё]+", corpus))
+        known_ratio = sum(word in known_words for word in generated_words) / len(generated_words)
+        return known_ratio >= float(min_known_ratio)
