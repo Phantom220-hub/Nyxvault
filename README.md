@@ -50,3 +50,18 @@ Then run `/train` to rebuild the retrieval index and retrain the small neural ne
 ## Privacy
 
 Do not commit the Teacher Mode password, private conversations, personal data, or secret keys. Keep the repository private if you plan to add personal training material. The owner identity above is included as requested.
+
+
+## Native Android app
+
+A native Android client is included in `app/`. It runs fully offline and uses the project's own TF-IDF knowledge-retrieval algorithm implemented in Kotlin. The first launch copies the starter knowledge file into the app's private storage. Chat does not modify the knowledge base. Teacher Mode lets the owner create a local password and add question/answer examples on the device.
+
+Build the debug APK with:
+
+```bash
+gradle :app:assembleDebug
+```
+
+The GitHub Actions workflow `NYXVAULT Android APK` builds the APK and uploads it as the `NYXVAULT-Android-APK` artifact.
+
+**Current Android scope:** this first native release runs the retrieval engine and editable local knowledge base. The experimental NumPy character-level RNN from `neural_brain.py` is not yet embedded in the Android app. This is not a general-purpose generative LLM; unknown questions may receive an honest fallback response.
