@@ -108,7 +108,7 @@ class MainActivity : Activity() {
             setHintTextColor(muted)
             setTextColor(textColor)
             textSize = 15f
-            singleLine = true
+            maxLines = 1
             imeOptions = EditorInfo.IME_ACTION_SEND
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             background = rounded(Color.rgb(24, 38, 61), 14)
