@@ -6,6 +6,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -39,12 +43,26 @@ class MainActivity : Activity() {
     private var webEnabled = true
     private var busy = false
     private lateinit var webButton: Button
+    private lateinit var memoryStore: MemoryStore
+    private lateinit var voiceButton: Button
+    private lateinit var modeButton: Button
+    private var currentMode = "Обычный"
+    private var voiceOutput = false
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private val speechRequestCode = 7042
+    private val audioPermissionCode = 7043
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
         knowledgeFile = File(filesDir, "knowledge.jsonl")
+        memoryStore = MemoryStore(this)
+        tts = TextToSpeech(this) { result ->
+            ttsReady = result == TextToSpeech.SUCCESS
+            if (ttsReady) tts?.language = Locale("ru", "RU")
+        }
         loadKnowledge()
         buildInterface()
         addMessage("Привет! Я NYXVAULT — твой локальный ИИ. Мои ответы основаны на собственной базе знаний.\n\nСпроси, например: «Что такое Python?»", false)
@@ -89,6 +107,19 @@ class MainActivity : Activity() {
         } }
         topRow.addView(webButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
         root.addView(topRow)
+
+        val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        modeButton = makeButton("MODE: ОБЫЧНЫЙ").apply { textSize = 9f; setOnClickListener { chooseMode() } }
+        toolsRow.addView(modeButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7); marginEnd = dp(5) })
+        val memory = makeButton("MEMORY").apply { textSize = 10f; setOnClickListener { showMemory() } }
+        toolsRow.addView(memory, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7); marginEnd = dp(5) })
+        voiceButton = makeButton("VOICE: OFF").apply { textSize = 10f; setOnClickListener {
+            voiceOutput = !voiceOutput
+            text = if (voiceOutput) "VOICE: ON" else "VOICE: OFF"
+            if (!voiceOutput) tts?.stop()
+        }; setOnLongClickListener { chooseSpeechLanguage(); true } }
+        toolsRow.addView(voiceButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { topMargin = dp(7) })
+        root.addView(toolsRow)
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -138,6 +169,7 @@ class MainActivity : Activity() {
         if (question.isEmpty() || busy) return
         input.text.clear()
         addMessage(question, true)
+        if (handleMemoryCommand(question)) return
         val local = findAnswer(question)
         if (!webEnabled) {
             addMessage(local, false)
@@ -162,6 +194,9 @@ class MainActivity : Activity() {
     }
 
     private fun addMessage(value: String, fromUser: Boolean) {
+        if (!fromUser && voiceOutput && ttsReady) {
+            tts?.speak(value.take(2500), TextToSpeech.QUEUE_FLUSH, null, "nyxvault_reply")
+        }
         val bubble = TextView(this).apply {
             text = value
             textSize = 14f
@@ -289,8 +324,96 @@ class MainActivity : Activity() {
             }.show()
     }
 
+    private fun handleMemoryCommand(question: String): Boolean {
+        val q = question.trim()
+        val lower = q.lowercase(Locale.ROOT)
+        val prefixes = listOf("запомни:", "запомни ", "remember:")
+        val prefix = prefixes.firstOrNull { lower.startsWith(it) }
+        if (prefix != null) {
+            val fact = q.substring(prefix.length).trim()
+            if (fact.isBlank()) addMessage("Напиши факт после команды. Например: Запомни: я изучаю C++.", false)
+            else addMessage(if (memoryStore.add(fact)) "Сохранил в локальную память: $fact" else "Этот факт уже есть в памяти.", false)
+            return true
+        }
+        if (listOf("что ты помнишь", "покажи память", "мои заметки", "что сохранено").any { lower.contains(it) }) {
+            val facts = memoryStore.all()
+            addMessage(if (facts.isEmpty()) "Пока память пуста. Напиши: «Запомни: ...»" else "МОЯ ДОЛГОВРЕМЕННАЯ ПАМЯТЬ\\n" + facts.mapIndexed { i, v -> "${i + 1}. $v" }.joinToString("\\n"), false)
+            return true
+        }
+        return false
+    }
+
+    private fun showMemory() {
+        val facts = memoryStore.all()
+        val content = EditText(this).apply {
+            setText(facts.mapIndexed { i, v -> "${i + 1}. $v" }.joinToString("\\n"))
+            setTextColor(textColor)
+            minLines = 5
+            gravity = Gravity.TOP
+            hint = "Локальная память NYXVAULT"
+            isFocusable = false
+        }
+        AlertDialog.Builder(this)
+            .setTitle("LONG-TERM MEMORY")
+            .setMessage("Факты хранятся только на этом устройстве. Добавляй через чат: Запомни: ...")
+            .setView(content)
+            .setNeutralButton("Очистить память") { _, _ ->
+                AlertDialog.Builder(this).setMessage("Удалить все сохранённые факты?").setNegativeButton("Отмена", null)
+                    .setPositiveButton("Удалить") { _, _ -> memoryStore.clear(); toast("Локальная память очищена.") }.show()
+            }
+            .setPositiveButton("Закрыть", null).show()
+    }
+
+    private fun chooseMode() {
+        val modes = arrayOf("Обычный", "Учитель", "Разработчик", "Исследователь", "Детектив")
+        AlertDialog.Builder(this).setTitle("Режим NYXVAULT").setItems(modes) { _, which ->
+            currentMode = modes[which]
+            modeButton.text = "MODE: " + currentMode.uppercase(Locale.ROOT)
+            updateStatus()
+        }.show()
+    }
+
+    private fun chooseSpeechLanguage() {
+        AlertDialog.Builder(this).setTitle("Язык распознавания")
+            .setItems(arrayOf("Русский", "Тоҷикӣ")) { _, which ->
+                startVoiceInput(if (which == 1) "tg-TJ" else "ru-RU")
+            }.show()
+    }
+
+    private fun startVoiceInput(language: String) {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), audioPermissionCode)
+            return
+        }
+        if (!packageManager.queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNullOrEmpty()) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, if (language.startsWith("tg")) "Сӯҳбат кунед" else "Говори")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            startActivityForResult(intent, speechRequestCode)
+        } else toast("На телефоне нет доступного сервиса распознавания речи.")
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == audioPermissionCode && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            startVoiceInput("ru-RU")
+        } else if (requestCode == audioPermissionCode) toast("Доступ к микрофону не предоставлен.")
+    }
+
+    @Deprecated("Deprecated in Android API, kept for compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == speechRequestCode && resultCode == RESULT_OK) {
+            val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+        }
+    }
+
     private fun updateStatus() {
-        status.text = "● ${if (webEnabled) "WEB RESEARCH ON" else "OFFLINE MODE"}  •  ${examples.size} локальных знаний  •  ${if (busy) "анализ..." else "готов"}"
+        status.text = "● ${if (webEnabled) "WEB ON" else "OFFLINE"} • ${currentMode.uppercase(Locale.ROOT)} • ${examples.size} знаний • ${if (busy) "анализ..." else "готов"}"
     }
 
     private fun makeButton(label: String) = Button(this).apply {
