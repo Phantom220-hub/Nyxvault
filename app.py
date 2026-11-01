@@ -1,61 +1,73 @@
 import getpass
+import hmac
 import os
 from pathlib import Path
 
-from nyxvault import KnowledgeBase
+from nyxvault import Nyxvault, train
 
 DATA = Path("data/knowledge.jsonl")
+INDEX = Path("data/model_index.json")
 
 
-def teacher_mode(kb: KnowledgeBase) -> None:
+def teacher_mode() -> None:
     expected = os.environ.get("NYXVAULT_TEACHER_PASSWORD")
     if not expected:
-        print("Teacher mode is locked: set NYXVAULT_TEACHER_PASSWORD in your local environment first.")
+        print("Teacher Mode заблокирован. Сначала задай NYXVAULT_TEACHER_PASSWORD в локальном окружении.")
         return
-    supplied = getpass.getpass("Teacher password: ")
-    import hmac
+    supplied = getpass.getpass("Пароль Teacher Mode: ")
     if not hmac.compare_digest(supplied, expected):
-        print("Wrong password.")
+        print("Неверный пароль.")
         return
 
-    print("\nTEACHER MODE — type /exit to leave.")
-    print("Add knowledge as: question => answer")
+    print("\nTEACHER MODE — обучение NYXVAULT. Команды: /train, /count, /exit")
+    print("Добавляй материал в формате: вопрос => правильный ответ")
     while True:
-        line = input("Teach> ").strip()
+        line = input("Учитель> ").strip()
         if line == "/exit":
             break
+        if line == "/count":
+            from nyxvault import load_examples
+            print("Примеров в учебной базе:", len(load_examples(DATA)))
+            continue
+        if line == "/train":
+            stats = train(DATA, INDEX)
+            print(f"Обучение завершено: примеров {stats['examples']}, словарь {stats['vocabulary']}.")
+            continue
         if "=>" not in line:
-            print("Format: question => answer")
+            print("Формат: вопрос => ответ")
             continue
         question, answer = (part.strip() for part in line.split("=>", 1))
         if not question or not answer:
-            print("Both question and answer are required.")
+            print("Нужны и вопрос, и ответ.")
             continue
-        kb.add(question, answer)
-        print("Saved locally. Chat mode can use this example now.")
+        bot = Nyxvault(DATA, INDEX)
+        bot.teach(question, answer)
+        print("Пример сохранён. Выполни /train, чтобы обновить модель.")
 
 
-def chat_mode(kb: KnowledgeBase) -> None:
-    print("\nCHAT MODE — read-only; type /exit to leave.")
+def chat_mode() -> None:
+    bot = Nyxvault(DATA, INDEX)
+    print("\nCHAT MODE — только чтение, обучение отключено. /exit — выход.")
     while True:
-        question = input("You> ").strip()
+        question = input("Ты> ").strip()
         if question == "/exit":
             break
-        print("NYXVAULT>", kb.answer(question))
+        print("NYXVAULT>", bot.answer(question))
 
 
 def main() -> None:
-    kb = KnowledgeBase(DATA)
-    print("NYXVAULT — experimental from-scratch assistant")
-    print("1. Chat mode (read-only)")
-    print("2. Teacher mode (password required)")
-    choice = input("Choose mode: ").strip()
+    print("NYXVAULT")
+    print("Создатель: Nyxvault Studio")
+    print("Владелец: Акрамзод Анас")
+    print("\n1. Chat Mode — обычное общение, без обучения")
+    print("2. Teacher Mode — обучение под паролем")
+    choice = input("Выбери режим: ").strip()
     if choice == "1":
-        chat_mode(kb)
+        chat_mode()
     elif choice == "2":
-        teacher_mode(kb)
+        teacher_mode()
     else:
-        print("Choose 1 or 2.")
+        print("Выбери 1 или 2.")
 
 
 if __name__ == "__main__":
