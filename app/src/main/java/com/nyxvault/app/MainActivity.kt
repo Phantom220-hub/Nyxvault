@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var voiceButton: Button
     private lateinit var modeButton: Button
     private var currentMode = "Обычный"
+    private var lastTopicQuestion = ""
     private var voiceOutput = false
     private var pendingSpeechLanguage = "ru-RU"
     private var tts: TextToSpeech? = null
@@ -176,9 +177,14 @@ class MainActivity : Activity() {
         input.text.clear()
         addMessage(question, true)
         if (handleMemoryCommand(question)) return
-        AcademyEngine.respond(question)?.let { addMessage(it, false); return }
-        var local = findAnswer(question)
-        val questionTokens = tokenize(question)
+        val isFollowUp = listOf("а почему", "почему", "подробнее", "а пример", "пример", "а как", "что дальше", "и что", "чаро", "мисол").any {
+            question.lowercase(Locale.ROOT).startsWith(it)
+        }
+        val effectiveQuestion = if (isFollowUp && lastTopicQuestion.isNotBlank()) "$lastTopicQuestion $question" else question
+        if (!isFollowUp) lastTopicQuestion = question
+        AcademyEngine.respond(effectiveQuestion)?.let { addMessage(it, false); return }
+        var local = findAnswer(effectiveQuestion)
+        val questionTokens = tokenize(effectiveQuestion)
         val relevantMemory = memoryStore.all().filter { fact ->
             tokenize(fact).intersect(questionTokens).size >= 2
         }.take(3)
@@ -193,11 +199,11 @@ class MainActivity : Activity() {
         status.text = "● NYXVAULT THINKING  •  ищу свежие источники..."
         Thread {
             val searchQuery = when (currentMode) {
-                "Учитель" -> "$question пошаговое объяснение учебный материал"
-                "Разработчик" -> "$question programming documentation code examples"
-                "Исследователь" -> "$question research scientific sources"
-                "Детектив" -> "$question logical analysis evidence contradictions"
-                else -> question
+                "Учитель" -> "$effectiveQuestion пошаговое объяснение учебный материал"
+                "Разработчик" -> "$effectiveQuestion programming documentation code examples"
+                "Исследователь" -> "$effectiveQuestion research scientific sources"
+                "Детектив" -> "$effectiveQuestion logical analysis evidence contradictions"
+                else -> effectiveQuestion
             }
             val hits = try { WebResearch.search(searchQuery) } catch (_: Exception) { emptyList() }
             runOnUiThread {
