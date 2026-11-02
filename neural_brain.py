@@ -55,6 +55,7 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
     model_path.parent.mkdir(parents=True, exist_ok=True)
     resumed = False
     adam_step = 0
+    previous_epochs = 0
     if model_path.exists():
         try:
             with np.load(model_path, allow_pickle=False) as saved:
@@ -67,6 +68,7 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
                         adam_m = [saved[f"adam_m_{i}"].astype(np.float32).copy() for i in range(5)]
                         adam_v = [saved[f"adam_v_{i}"].astype(np.float32).copy() for i in range(5)]
                         adam_step = int(saved["adam_step"][0])
+                    previous_epochs = int(saved["epochs_total"][0]) if "epochs_total" in saved else 0
                     else:
                         adam_m = [np.zeros_like(p) for p in params]
                         adam_v = [np.zeros_like(p) for p in params]
@@ -131,7 +133,7 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
     save_values = {"chars": np.array(chars), "wxh": wxh, "whh": whh, "why": why, "bh": bh, "by": by,
                    "seq_len": np.array([SEQ_LEN], dtype=np.int32), "hidden": np.array([HIDDEN], dtype=np.int32),
                    "adam_step": np.array([adam_step], dtype=np.int64),
-                   "epochs_total": np.array([completed_epochs], dtype=np.int64)}
+                   "epochs_total": np.array([previous_epochs + completed_epochs], dtype=np.int64)}
     for i in range(5):
         save_values[f"adam_m_{i}"], save_values[f"adam_v_{i}"] = adam_m[i], adam_v[i]
     np.savez_compressed(model_path, **save_values)
