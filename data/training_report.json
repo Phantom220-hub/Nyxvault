@@ -1,0 +1,10 @@
+{
+  "retrieval_examples": 173,
+  "retrieval_vocabulary": 342,
+  "neural_architecture": "vanilla_rnn",
+  "neural_characters": 30787,
+  "neural_vocabulary": 148,
+  "neural_epochs": 100,
+  "neural_loss": 1.0248,
+  "sample_generation": "Нет. ДНx — прамедар. Он дар Python чист?"
+}
