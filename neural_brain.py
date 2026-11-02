@@ -50,22 +50,41 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
     encoded = np.array([to_id[c] for c in corpus], dtype=np.int32)
     vocab = len(chars)
     rng = np.random.default_rng(20261101)
-
-    # Vanilla RNN: h[t] = tanh(Wxh*x[t] + Whh*h[t-1] + bh)
     scale = 1.0 / np.sqrt(HIDDEN)
-    wxh = (rng.standard_normal((HIDDEN, vocab)) * scale).astype(np.float32)
-    whh = (rng.standard_normal((HIDDEN, HIDDEN)) * scale).astype(np.float32)
-    why = (rng.standard_normal((vocab, HIDDEN)) * scale).astype(np.float32)
-    bh = np.zeros((HIDDEN, 1), dtype=np.float32)
-    by = np.zeros((vocab, 1), dtype=np.float32)
+    model_path = Path(model_path)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    resumed = False
+    adam_step = 0
+    if model_path.exists():
+        try:
+            with np.load(model_path, allow_pickle=False) as saved:
+                expected = {"wxh": (HIDDEN, vocab), "whh": (HIDDEN, HIDDEN),
+                            "why": (vocab, HIDDEN), "bh": (HIDDEN, 1), "by": (vocab, 1)}
+                if saved["chars"].tolist() == chars and all(saved[k].shape == v for k, v in expected.items()):
+                    wxh, whh, why, bh, by = [saved[k].astype(np.float32).copy() for k in ("wxh","whh","why","bh","by")]
+                    params = [wxh, whh, why, bh, by]
+                    if all(f"adam_m_{i}" in saved and f"adam_v_{i}" in saved for i in range(5)):
+                        adam_m = [saved[f"adam_m_{i}"].astype(np.float32).copy() for i in range(5)]
+                        adam_v = [saved[f"adam_v_{i}"].astype(np.float32).copy() for i in range(5)]
+                        adam_step = int(saved["adam_step"][0])
+                    else:
+                        adam_m = [np.zeros_like(p) for p in params]
+                        adam_v = [np.zeros_like(p) for p in params]
+                    resumed = True
+        except (KeyError, ValueError, OSError):
+            resumed = False
+    if not resumed:
+        wxh = (rng.standard_normal((HIDDEN, vocab)) * scale).astype(np.float32)
+        whh = (rng.standard_normal((HIDDEN, HIDDEN)) * scale).astype(np.float32)
+        why = (rng.standard_normal((vocab, HIDDEN)) * scale).astype(np.float32)
+        bh = np.zeros((HIDDEN, 1), dtype=np.float32)
+        by = np.zeros((vocab, 1), dtype=np.float32)
+        params = [wxh, whh, why, bh, by]
+        adam_m = [np.zeros_like(p) for p in params]
+        adam_v = [np.zeros_like(p) for p in params]
 
-    # Deterministic, bounded sequence training.
     stride = max(SEQ_LEN // 2, int(np.ceil(len(encoded) / 256)))
     starts = np.arange(0, len(encoded) - SEQ_LEN - 1, stride)
-    params = [wxh, whh, why, bh, by]
-    adam_m = [np.zeros_like(p) for p in params]
-    adam_v = [np.zeros_like(p) for p in params]
-    adam_step = 0
     final_loss = 0.0
     completed_epochs = max(1, int(epochs))
     for epoch in range(completed_epochs):
@@ -77,60 +96,45 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
             xs, hs, ps, targets = {}, {-1: h_prev}, {}, {}
             loss = 0.0
             for t in range(SEQ_LEN):
-                x_id = int(encoded[start + t])
-                y_id = int(encoded[start + t + 1])
-                x = np.zeros((vocab, 1), dtype=np.float32)
-                x[x_id, 0] = 1.0
-                h = np.tanh(wxh @ x + whh @ hs[t - 1] + bh)
+                x_id, y_id = int(encoded[start+t]), int(encoded[start+t+1])
+                x = np.zeros((vocab, 1), dtype=np.float32); x[x_id, 0] = 1.0
+                h = np.tanh(wxh @ x + whh @ hs[t-1] + bh)
                 p = _softmax(why @ h + by)
                 loss -= float(np.log(p[y_id, 0] + 1e-9))
                 xs[t], hs[t], ps[t], targets[t] = x, h, p, y_id
-
-            d_wxh = np.zeros_like(wxh)
-            d_whh = np.zeros_like(whh)
-            d_why = np.zeros_like(why)
-            d_bh = np.zeros_like(bh)
-            d_by = np.zeros_like(by)
+            d_wxh, d_whh, d_why = np.zeros_like(wxh), np.zeros_like(whh), np.zeros_like(why)
+            d_bh, d_by = np.zeros_like(bh), np.zeros_like(by)
             dh_next = np.zeros((HIDDEN, 1), dtype=np.float32)
             for t in reversed(range(SEQ_LEN)):
-                dy = ps[t].copy()
-                dy[targets[t], 0] -= 1.0
-                d_why += dy @ hs[t].T
-                d_by += dy
+                dy = ps[t].copy(); dy[targets[t], 0] -= 1.0
+                d_why += dy @ hs[t].T; d_by += dy
                 dh = why.T @ dy + dh_next
                 dh_raw = (1.0 - hs[t] * hs[t]) * dh
-                d_bh += dh_raw
-                d_wxh += dh_raw @ xs[t].T
-                d_whh += dh_raw @ hs[t - 1].T
+                d_bh += dh_raw; d_wxh += dh_raw @ xs[t].T
+                d_whh += dh_raw @ hs[t-1].T
                 dh_next = whh.T @ dh_raw
-
             grads = [d_wxh, d_whh, d_why, d_bh, d_by]
-            for grad in grads:
-                grad /= SEQ_LEN
-            grad_norm = np.sqrt(sum(float(np.sum(grad * grad)) for grad in grads))
-            if grad_norm > 1.0:
-                for grad in grads:
-                    grad *= 1.0 / grad_norm
+            for grad in grads: grad /= SEQ_LEN
+            norm = np.sqrt(sum(float(np.sum(g*g)) for g in grads))
+            if norm > 1.0:
+                for grad in grads: grad *= 1.0 / norm
             adam_step += 1
             for i, (param, grad) in enumerate(zip(params, grads)):
-                adam_m[i] = 0.9 * adam_m[i] + 0.1 * grad
-                adam_v[i] = 0.999 * adam_v[i] + 0.001 * (grad * grad)
-                m_hat = adam_m[i] / (1.0 - 0.9 ** adam_step)
-                v_hat = adam_v[i] / (1.0 - 0.999 ** adam_step)
-                param -= LEARNING_RATE * m_hat / (np.sqrt(v_hat) + 1e-8)
-            epoch_loss += loss / SEQ_LEN
-            batches += 1
-        final_loss = epoch_loss / max(1, batches)
+                adam_m[i] = 0.9*adam_m[i] + 0.1*grad
+                adam_v[i] = 0.999*adam_v[i] + 0.001*(grad*grad)
+                m_hat = adam_m[i] / (1.0 - 0.9**adam_step)
+                v_hat = adam_v[i] / (1.0 - 0.999**adam_step)
+                param -= LEARNING_RATE*m_hat/(np.sqrt(v_hat)+1e-8)
+            epoch_loss += loss/SEQ_LEN; batches += 1
+        final_loss = epoch_loss/max(1,batches)
 
-    model_path = Path(model_path)
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        model_path,
-        chars=np.array(chars),
-        wxh=wxh, whh=whh, why=why, bh=bh, by=by,
-        seq_len=np.array([SEQ_LEN], dtype=np.int32),
-        hidden=np.array([HIDDEN], dtype=np.int32),
-    )
+    save_values = {"chars": np.array(chars), "wxh": wxh, "whh": whh, "why": why, "bh": bh, "by": by,
+                   "seq_len": np.array([SEQ_LEN], dtype=np.int32), "hidden": np.array([HIDDEN], dtype=np.int32),
+                   "adam_step": np.array([adam_step], dtype=np.int64),
+                   "epochs_total": np.array([completed_epochs], dtype=np.int64)}
+    for i in range(5):
+        save_values[f"adam_m_{i}"], save_values[f"adam_v_{i}"] = adam_m[i], adam_v[i]
+    np.savez_compressed(model_path, **save_values)
     return {
         "characters": len(corpus),
         "vocabulary": vocab,
@@ -138,6 +142,8 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
         "loss": round(final_loss, 4),
         "model": str(model_path),
         "architecture": "vanilla_rnn",
+        "resumed": resumed,
+        "optimizer_steps": adam_step,
     }
 
 
