@@ -299,6 +299,7 @@ class MainActivity : Activity() {
     private fun findAnswer(question: String): String {
         LinearEquationSolver.solve(question)?.let { return it }
         MathSolver.solve(question)?.let { return it }
+        KnowledgeReasoner.answer(question, examples)?.let { return it }
         val ranked = IntelligenceEngine.rank(question, examples.map { it.question })
             ?: return "Напиши вопрос — я попробую найти подходящий ответ."
         if (ranked.score < 0.16) {
