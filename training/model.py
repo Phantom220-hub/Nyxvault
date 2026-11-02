@@ -26,9 +26,9 @@ class Block(nn.Module):
         self.ln1=nn.LayerNorm(cfg["d_model"]); self.attn=CausalSelfAttention(cfg["d_model"],cfg["n_heads"],cfg["dropout"],cfg["block_size"])
         self.ln2=nn.LayerNorm(cfg["d_model"])
         self.mlp=nn.Sequential(nn.Linear(cfg["d_model"],4*cfg["d_model"]),nn.GELU(),nn.Linear(4*cfg["d_model"],cfg["d_model"]),nn.Dropout(cfg["dropout"]))
-    def forward(self,x): return x+self.attn(self.ln1(x)) if False else self._forward(x)
-    def _forward(self,x):
-        x=x+self.attn(self.ln1(x)); return x+self.mlp(self.ln2(x))
+    def forward(self,x):
+        x=x+self.attn(self.ln1(x))
+        return x+self.mlp(self.ln2(x))
 
 class NYXVAULTGPT(nn.Module):
     def __init__(self,vocab_size,cfg=None):
