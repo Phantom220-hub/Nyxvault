@@ -40,6 +40,24 @@ class NyxvaultTests(unittest.TestCase):
             self.assertFalse(bot.looks_plausible("зювтоп шшщщк лллпп", data))
             self.assertTrue(bot.looks_plausible("Привет Я NYXVAULT", data))
 
+
+    def test_neural_training_resumes_checkpoint(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data = root / "knowledge.jsonl"
+            model = root / "neural_model.npz"
+            data.write_text(
+                '{"question":"Привет","answer":"Я NYXVAULT."}\\n'
+                '{"question":"Что такое Python","answer":"Python — язык программирования."}\\n',
+                encoding="utf-8",
+            )
+            first = train_neural(data, model, epochs=1)
+            second = train_neural(data, model, epochs=1)
+            self.assertFalse(first["resumed"])
+            self.assertTrue(second["resumed"])
+            self.assertGreater(second["optimizer_steps"], first["optimizer_steps"])
+            self.assertEqual(second["epochs_total"], 2)
+
     def test_unknown_question_does_not_invent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
