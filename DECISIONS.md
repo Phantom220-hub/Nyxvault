@@ -8,3 +8,7 @@
 - Do not add a cloud LLM or paid service. Keep the default app offline-first.
 - Keep the experimental Python RNN clearly labelled as an educational prototype, not a conversational LLM.
 - Use JUnit for pure Kotlin logic tests and Python unittest for the Python retrieval/training layer.
+
+## 2026-11-02 — training corpus focus
+- Prioritize Russian/Tajik programming, IT, computer science, AI, cybersecurity, software development and technology, while including broad Tajik essay themes (homeland, education, language, nature, science, youth and culture).
+- Do not claim the small current knowledge JSONL is sufficient for a useful LLM; the notebook supplements it with attribution-tracked Wikipedia text and reports corpus counts.
