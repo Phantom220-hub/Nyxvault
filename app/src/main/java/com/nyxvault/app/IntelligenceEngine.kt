@@ -98,7 +98,7 @@ object IntelligenceEngine {
 }
 
 object LinearEquationSolver {
-    private val pattern = Regex("""^\\s*(-?\\d*)\\s*\\*?\\s*x\\s*([+-]\\s*\\d+(?:[.,]\\d+)?)?\\s*=\\s*(-?\\d+(?:[.,]\\d+)?)\\s*$""", RegexOption.IGNORE_CASE)
+    private val pattern = Regex("""^\s*(-?\d*)\s*\*?\s*x\s*([+-]\s*\d+(?:[.,]\d+)?)?\s*=\s*(-?\d+(?:[.,]\d+)?)\s*$""", RegexOption.IGNORE_CASE)
 
     fun solve(input: String): String? {
         val cleaned = input.lowercase(Locale.ROOT)
