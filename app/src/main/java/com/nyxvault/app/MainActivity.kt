@@ -22,6 +22,10 @@ import android.widget.TextView
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
+import android.util.Base64
 import kotlin.math.ln
 import kotlin.math.sqrt
 
@@ -40,7 +44,7 @@ class MainActivity : Activity() {
     private lateinit var knowledgeFile: File
     private var examples = mutableListOf<Example>()
     private var teacherUnlocked = false
-    private var webEnabled = true
+    private var webEnabled = false
     private var busy = false
     private lateinit var webButton: Button
     private lateinit var memoryStore: MemoryStore
@@ -105,7 +109,7 @@ class MainActivity : Activity() {
         })
         val teacher = makeButton("TEACHER").apply { textSize = 10f; setOnClickListener { openTeacherGate() } }
         topRow.addView(teacher, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
-        webButton = makeButton("WEB: ON").apply { textSize = 10f; setOnClickListener {
+        webButton = makeButton("WEB: OFF").apply { textSize = 10f; setOnClickListener {
             webEnabled = !webEnabled
             text = if (webEnabled) "WEB: ON" else "WEB: OFF"
             updateStatus()
@@ -310,30 +314,65 @@ class MainActivity : Activity() {
 
     private fun openTeacherGate() {
         val prefs = getSharedPreferences("nyxvault", MODE_PRIVATE)
-        val saved = prefs.getString("teacher_password", null)
+        val savedHash = prefs.getString("teacher_password_hash", null)
+        val savedSalt = prefs.getString("teacher_password_salt", null)
+        val legacyPassword = prefs.getString("teacher_password", null)
+        val hasPassword = (savedHash != null && savedSalt != null) || legacyPassword != null
         val field = EditText(this).apply {
-            hint = if (saved == null) "Создай пароль (минимум 6 символов)" else "Пароль Teacher Mode"
+            hint = if (!hasPassword) "Создай пароль (минимум 8 символов)" else "Пароль Teacher Mode"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         AlertDialog.Builder(this)
-            .setTitle(if (saved == null) "Настройка Teacher Mode" else "Вход в Teacher Mode")
-            .setMessage(if (saved == null) "Пароль хранится только на этом телефоне." else "Введи свой пароль.")
+            .setTitle(if (!hasPassword) "Настройка Teacher Mode" else "Вход в Teacher Mode")
+            .setMessage(if (!hasPassword) "Пароль будет храниться как PBKDF2-хэш с солью на этом телефоне." else "Введи свой пароль.")
             .setView(field)
             .setNegativeButton("Отмена", null)
-            .setPositiveButton(if (saved == null) "Создать" else "Войти") { _, _ ->
+            .setPositiveButton(if (!hasPassword) "Создать" else "Войти") { _, _ ->
                 val value = field.text.toString()
-                if (saved == null) {
-                    if (value.length < 6) toast("Пароль должен содержать минимум 6 символов.")
+                if (!hasPassword) {
+                    if (value.length < 8) toast("Пароль должен содержать минимум 8 символов.")
                     else {
-                        prefs.edit().putString("teacher_password", value).apply()
+                        saveTeacherPassword(prefs, value)
                         teacherUnlocked = true
                         showTeacherEditor()
                     }
-                } else if (value == saved) {
-                    teacherUnlocked = true
-                    showTeacherEditor()
-                } else toast("Неверный пароль.")
+                } else {
+                    val valid = if (savedHash != null && savedSalt != null) {
+                        verifyTeacherPassword(value, savedSalt, savedHash)
+                    } else value == legacyPassword
+                    if (valid) {
+                        if (legacyPassword != null) saveTeacherPassword(prefs, value)
+                        teacherUnlocked = true
+                        showTeacherEditor()
+                    } else toast("Неверный пароль.")
+                }
             }.show()
+    }
+
+    private fun saveTeacherPassword(prefs: android.content.SharedPreferences, password: String) {
+        val saltBytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val salt = Base64.encodeToString(saltBytes, Base64.NO_WRAP)
+        val hash = hashTeacherPassword(password, saltBytes)
+        prefs.edit().putString("teacher_password_salt", salt)
+            .putString("teacher_password_hash", hash)
+            .remove("teacher_password").apply()
+    }
+
+    private fun verifyTeacherPassword(password: String, salt: String, expectedHash: String): Boolean {
+        return try {
+            val saltBytes = Base64.decode(salt, Base64.NO_WRAP)
+            val actual = Base64.decode(hashTeacherPassword(password, saltBytes), Base64.NO_WRAP)
+            val expected = Base64.decode(expectedHash, Base64.NO_WRAP)
+            java.security.MessageDigest.isEqual(actual, expected)
+        } catch (_: Exception) { false }
+    }
+
+    private fun hashTeacherPassword(password: String, salt: ByteArray): String {
+        val spec = PBEKeySpec(password.toCharArray(), salt, 120_000, 256)
+        return try {
+            Base64.encodeToString(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded, Base64.NO_WRAP)
+        } finally { spec.clearPassword() }
     }
 
     private fun showTeacherEditor() {
