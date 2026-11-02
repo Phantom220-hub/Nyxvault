@@ -141,6 +141,7 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
         "characters": len(corpus),
         "vocabulary": vocab,
         "epochs": completed_epochs,
+        "epochs_total": previous_epochs + completed_epochs,
         "loss": round(final_loss, 4),
         "model": str(model_path),
         "architecture": "vanilla_rnn",
