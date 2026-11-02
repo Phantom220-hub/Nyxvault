@@ -33,7 +33,7 @@ class Block(nn.Module):
 class NYXVAULTGPT(nn.Module):
     def __init__(self,vocab_size,cfg=None):
         super().__init__()
-        self.cfg=cfg or {"d_model":256,"n_heads":8,"n_layers":6,"block_size":256,"dropout":0.1}
+        self.cfg=cfg or {"d_model":384,"n_heads":8,"n_layers":8,"block_size":256,"dropout":0.1}
         c=self.cfg
         self.token_emb=nn.Embedding(vocab_size,c["d_model"]); self.pos_emb=nn.Embedding(c["block_size"],c["d_model"])
         self.drop=nn.Dropout(c["dropout"]); self.blocks=nn.Sequential(*[Block(c) for _ in range(c["n_layers"])])
