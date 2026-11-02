@@ -1,67 +1,54 @@
-# NYXVAULT
+# NYXVAULT 0.7.0
 
-**Created by:** Nyxvault Studio  
+**Project:** NYXVAULT — Nyxvault Studio  
 **Owner:** Акрамзод Анас
 
-NYXVAULT is an experimental local AI project built without external chat models, hosted inference APIs, or pretrained model weights.
+NYXVAULT is an experimental offline-first Android assistant and a separate Python learning prototype. It is a retrieval-based system, **not** a general-purpose large language model and not comparable to Claude or ChatGPT.
 
-## Two separate modes
+## Android app
 
-- **Chat Mode:** read-only conversation using the locally trained knowledge index. It does not add examples or change the model.
-- **Teacher Mode:** requires the owner-set password. It accepts approved question/answer examples and rebuilds both local models when `/train` is run.
+- Native Kotlin Android application.
+- Local question/answer knowledge base, copied to app-private storage on first launch.
+- Teacher Mode for adding local knowledge.
+- Teacher password is stored as a PBKDF2-HMAC-SHA256 hash with a random salt. Existing plaintext passwords are migrated after a successful login.
+- Local long-term facts and a rolling conversation history.
+- Basic retrieval, limited linear-equation and arithmetic tools.
+- Speech recognition and Android Text-to-Speech, depending on installed device services.
+- Web research is **OFF by default**. Tap the WEB toggle to enable it explicitly; turn it off again to return to offline-only chat.
 
-## What "training" means in this version
+## Python prototype
 
-The project now contains two learning components: a transparent TF-IDF retrieval index and a character-level vanilla RNN trained from random weights using NumPy and the project's own corpus. This is an educational mini-model with a bounded training workload for modest devices, not a modern large language model; generated text may be inaccurate or incoherent. It does not use external models, APIs, or pretrained weights.
+The root Python scripts are a separate prototype. They use a local TF-IDF retrieval index and an experimental character-level RNN trained with NumPy. The RNN may generate incoherent text and is not embedded in the Android application.
 
-The local corpus now includes programming fundamentals, Python, C++, algorithms, Git/GitHub, testing, Godot 3D, Android optimization, game graphics, and neural-network basics. Chat Mode keeps up to four recent exchanges in temporary session context; `/clear` removes that context.
+## Build Android APK
 
-## Run
+Requires JDK 17 and Gradle 8.9:
 
-Python 3.10+ (NumPy is required for neural training):
+```bash
+gradle --no-daemon :app:testDebugUnitTest
+gradle --no-daemon :app:assembleDebug
+```
+
+The GitHub Actions workflow runs Kotlin unit tests before assembling the debug APK. The artifact is named `NYXVAULT-Android-APK`.
+
+## Run Python tests and training
+
+Python 3.12 and NumPy:
 
 ```bash
 python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
 python train.py
 ```
 
-### Browser interface (Android / desktop)\n\nStart the local web app:\n\n```bash\npython web_app.py\n```\n\nOpen `http://127.0.0.1:8765` in the same device's browser. The server binds only to localhost and keeps chat history in temporary session memory. To enable Teacher Mode, set the password environment variable before starting the server.\n\nSet a private password locally, then start:
+## Privacy and limitations
 
-Linux/macOS/Termux:
-```bash
-export NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
-python app.py
-```
+- Android knowledge, facts, and conversation history are stored in the app's private local storage.
+- Web research makes network requests only after the user explicitly enables WEB.
+- Android voice recognition may use an external system speech service; offline availability depends on the device.
+- No cloud LLM, local LLM, Stockfish engine, 200-puzzle bank, general equation solver, or semantic memory system is included.
+- No device-level ANR, memory, microphone, or TTS verification is claimed. See [BLOCKERS.md](BLOCKERS.md) for outstanding work.
 
-Windows PowerShell:
-```powershell
-$env:NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
-python app.py
-```
+## Add knowledge
 
-In Teacher Mode, add examples as:
-
-```
-How do I make a player move in Godot? => Use CharacterBody3D...
-```
-
-Then run `/train` to rebuild the retrieval index and retrain the small neural network. Chat Mode never trains or writes to the corpus. If the retrieval index has no suitable answer and a neural model exists, it can show a clearly labelled experimental generated response.
-
-## Privacy
-
-Do not commit the Teacher Mode password, private conversations, personal data, or secret keys. Keep the repository private if you plan to add personal training material. The owner identity above is included as requested.
-
-
-## Native Android app
-
-A native Android client is included in `app/`. It runs fully offline and uses the project's own TF-IDF knowledge-retrieval algorithm implemented in Kotlin. The first launch copies the starter knowledge file into the app's private storage. Chat does not modify the knowledge base. Teacher Mode lets the owner create a local password and add question/answer examples on the device.
-
-Build the debug APK with:
-
-```bash
-gradle :app:assembleDebug
-```
-
-The GitHub Actions workflow `NYXVAULT Android APK` builds the APK and uploads it as the `NYXVAULT-Android-APK` artifact.
-
-**Current Android scope:** this first native release runs the retrieval engine and editable local knowledge base. The experimental NumPy character-level RNN from `neural_brain.py` is not yet embedded in the Android app. This is not a general-purpose generative LLM; unknown questions may receive an honest fallback response.
+Open Teacher Mode in the Android app, set a password, then add a question and a verified answer. The Android knowledge base remains local to that installation. Python training data is stored separately in `data/knowledge.jsonl`.
