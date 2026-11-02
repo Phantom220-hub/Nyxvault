@@ -6,10 +6,10 @@ from pathlib import Path
 
 
 def clean(s):
-    s = str(s).replace("\\x00", "").replace("\\r", "\\n")
-    s = re.sub(r"https?://\\S+", " ", s)
-    s = re.sub(r"[ \\t]+", " ", s)
-    s = re.sub(r"\\n{3,}", "\\n\\n", s)
+    s = str(s).replace("\x00", "").replace("\r", "\n")
+    s = re.sub(r"https?://\S+", " ", s)
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\\n\\n", s)
     return s.strip()
 
 
@@ -49,7 +49,7 @@ def main():
                 try:
                     item = json.loads(line)
                     q, ans = clean(item.get("question", "")), clean(item.get("answer", ""))
-                    if q and ans and add_doc(docs, seen, f"Вопрос: {q}\\nОтвет: {ans}", "raw_jsonl", 20):
+                    if q and ans and add_doc(docs, seen, f"Вопрос: {q}\nОтвет: {ans}", "raw_jsonl", 20):
                         counts["raw_jsonl"] += 1
                 except (json.JSONDecodeError, AttributeError, TypeError):
                     malformed += 1
@@ -65,7 +65,7 @@ def main():
                 if not q or not ans:
                     counts["knowledge_empty"] += 1
                     continue
-                if add_doc(docs, seen, f"Вопрос: {q}\\nОтвет: {ans}", "knowledge_jsonl", 20):
+                if add_doc(docs, seen, f"Вопрос: {q}\nОтвет: {ans}", "knowledge_jsonl", 20):
                     counts["knowledge_jsonl"] += 1
                 else:
                     counts["duplicates_or_short"] += 1
@@ -78,8 +78,8 @@ def main():
     val, train = docs[:n_val], docs[n_val:]
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    train_text = "\\n\\n".join(x["text"] for x in train)
-    val_text = "\\n\\n".join(x["text"] for x in val)
+    train_text = "\n\n".join(x["text"] for x in train)
+    val_text = "\n\n".join(x["text"] for x in val)
     (out / "train.txt").write_text(train_text, encoding="utf-8")
     (out / "validation.txt").write_text(val_text, encoding="utf-8")
     manifest = {
