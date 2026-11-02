@@ -261,34 +261,22 @@ class MainActivity : Activity() {
         }.toMutableList()
     }
 
-    private fun tokenize(value: String): Set<String> =
-        Regex("[a-zа-яёӯғқҳҷӣ0-9_+#.]+", RegexOption.IGNORE_CASE)
-            .findAll(value.lowercase(Locale.ROOT).replace('ё', 'е')).map { it.value }.toSet()
+    private fun tokenize(value: String): Set<String> = IntelligenceEngine.tokens(value)
 
     private fun findAnswer(question: String): String {
+        LinearEquationSolver.solve(question)?.let { return it }
         MathSolver.solve(question)?.let { return it }
-        val q = tokenize(question)
-        if (q.isEmpty()) return "Напиши вопрос — я попробую найти подходящий ответ."
-        val docs = examples.map { tokenize(it.question) }
-        val n = maxOf(1, docs.size)
-        val vocab = docs.flatten().toSet()
-        val queryWords = q.intersect(vocab)
-        if (queryWords.isEmpty()) return "Я пока не знаю этого. Открой Teacher Mode и обучи меня правильному ответу."
-        val queryWeights = queryWords.associateWith { word -> ln(1.0 + n.toDouble() / (1.0 + docs.count { word in it })) }
-        val queryNorm = sqrt(queryWeights.values.sumOf { it * it }).takeIf { it > 0.0 } ?: 1.0
-        var bestIndex = -1
-        var bestScore = 0.0
-        for (i in examples.indices) {
-            val doc = docs[i]
-            val weights = doc.associateWith { word -> ln(1.0 + n.toDouble() / (1.0 + docs.count { word in it })) }
-            val docNorm = sqrt(weights.values.sumOf { it * it }).takeIf { it > 0.0 } ?: 1.0
-            val score = queryWeights.entries.sumOf { (word, weight) ->
-                (weight / queryNorm) * ((weights[word] ?: 0.0) / docNorm)
-            }
-            if (score > bestScore) { bestScore = score; bestIndex = i }
+        val ranked = IntelligenceEngine.rank(question, examples.map { it.question })
+            ?: return "Напиши вопрос — я попробую найти подходящий ответ."
+        if (ranked.score < 0.16) {
+            return "Я пока не нашёл достаточно надёжного совпадения в локальной базе.\n\n" +
+                "Попробуй переформулировать вопрос или добавь проверенное объяснение через Teacher Mode. " +
+                "Если включён WEB, могу показать найденные страницы, но их нужно проверять."
         }
-        return if (bestIndex >= 0 && bestScore >= 0.16) examples[bestIndex].answer
-        else "Я пока не знаю точного ответа. Добавь проверенный пример через Teacher Mode."
+        val answer = examples[ranked.index].answer
+        val framing = IntelligenceEngine.formatKnowledgeAnswer(question, answer, ranked.score)
+        val caution = IntelligenceEngine.uncertainty(ranked.score)
+        return if (caution.isBlank()) framing else "$framing\n\n$caution"
     }
 
     private fun openTeacherGate() {
