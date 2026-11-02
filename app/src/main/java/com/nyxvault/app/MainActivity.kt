@@ -187,7 +187,7 @@ class MainActivity : Activity() {
         }
         val effectiveQuestion = if (isFollowUp && lastTopicQuestion.isNotBlank()) "$lastTopicQuestion $question" else question
         if (!isFollowUp) lastTopicQuestion = question
-        AcademyEngine.respond(effectiveQuestion)?.let { addMessage(it, false); return }
+        AcademyEngine.respond(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
         var local = findAnswer(effectiveQuestion)
         val questionTokens = tokenize(effectiveQuestion)
         val relevantMemory = memoryStore.all().filter { fact ->
