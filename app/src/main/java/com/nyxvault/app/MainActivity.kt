@@ -177,6 +177,11 @@ class MainActivity : Activity() {
         input.text.clear()
         addMessage(question, true)
         if (handleMemoryCommand(question)) return
+        // A greeting is conversation, not a research query. Never send it to the web scraper.
+        if (isCasualGreeting(question)) {
+            addMessage("Привет! Рад начать разговор. Чем займёмся?", false)
+            return
+        }
         val isFollowUp = listOf("а почему", "почему", "подробнее", "а пример", "пример", "а как", "что дальше", "и что", "чаро", "мисол").any {
             question.lowercase(Locale.ROOT).startsWith(it)
         }
@@ -218,6 +223,19 @@ class MainActivity : Activity() {
                 updateStatus()
             }
         }.start()
+    }
+
+    private fun isCasualGreeting(value: String): Boolean {
+        val normalized = value.lowercase(Locale.ROOT)
+            .replace('ё', 'е')
+            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        return normalized in setOf(
+            "привет", "приветик", "здравствуй", "здравствуйте", "доброе утро",
+            "добрый день", "добрый вечер", "салам", "салом", "ассалому алейкум",
+            "салом алейкум", "hello", "hi", "hey"
+        )
     }
 
     private fun addMessage(value: String, fromUser: Boolean) {
