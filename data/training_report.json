@@ -5,9 +5,9 @@
   "neural_characters": 30787,
   "neural_vocabulary": 148,
   "neural_epochs_this_run": 100,
-  "neural_epochs_total": 200,
+  "neural_epochs_total": 300,
   "neural_resumed": true,
-  "neural_optimizer_steps": 51000,
-  "neural_loss": 0.978,
-  "sample_generation": "Нет. Он пошлемую спрясти, объясления бралим и снетано большой зепрамениед."
+  "neural_optimizer_steps": 76500,
+  "neural_loss": 0.9232,
+  "sample_generation": "Python заборае браной LOD и occlusion cullining — обучения."
 }
