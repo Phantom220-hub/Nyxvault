@@ -30,10 +30,10 @@ object KnowledgeReasoner {
     fun answer(question: String, examples: List<Example>): String? {
         if (examples.isEmpty()) return null
         val normalized = IntelligenceEngine.normalize(question)
-        val comparison = Regex("(?:чем|разниц[аы]|отлич(?:ается|аются))\\s+(.+?)\\s+(?:от|и)\\s+(.+?)(?:\\?|$)").find(normalized)
+        val comparison = Regex("чем\\s+(.+?)\\s+отличается\\s+от\\s+(.+?)(?:\\?|$)|разница\\s+между\\s+(.+?)\\s+и\\s+(.+?)(?:\\?|$)").find(normalized)
         if (comparison != null) {
-            val left = comparison.groupValues[1].trim()
-            val right = comparison.groupValues[2].trim()
+            val left = (comparison.groupValues[1].ifBlank { comparison.groupValues[3] }).trim()
+            val right = (comparison.groupValues[2].ifBlank { comparison.groupValues[4] }).trim()
             val leftHit = score(left, examples).firstOrNull { it.score >= 0.18 }
             val rightHit = score(right, examples).firstOrNull { it.score >= 0.18 && it.index != leftHit?.index }
             if (leftHit != null && rightHit != null) return "СРАВНЕНИЕ ПО ЛОКАЛЬНЫМ ЗНАНИЯМ\n\n$left:\n${examples[leftHit.index].answer}\n\n$right:\n${examples[rightHit.index].answer}\n\nГлавное различие можно сформулировать по этим определениям; если нужен точный разбор по критериям, уточни критерий сравнения."
