@@ -9,7 +9,7 @@ def clean(s):
     s = str(s).replace("\x00", "").replace("\r", "\n")
     s = re.sub(r"https?://\S+", " ", s)
     s = re.sub(r"[ \t]+", " ", s)
-    s = re.sub(r"\n{3,}", "\\n\\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
     return s.strip()
 
 
