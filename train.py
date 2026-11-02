@@ -18,7 +18,10 @@ if __name__ == "__main__":
         "neural_architecture": neural["architecture"],
         "neural_characters": neural["characters"],
         "neural_vocabulary": neural["vocabulary"],
-        "neural_epochs": neural["epochs"],
+        "neural_epochs_this_run": neural["epochs"],
+        "neural_epochs_total": neural["epochs_total"],
+        "neural_resumed": neural["resumed"],
+        "neural_optimizer_steps": neural["optimizer_steps"],
         "neural_loss": neural["loss"],
         "sample_generation": sample,
     }
