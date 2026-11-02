@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private var busy = false
     private lateinit var webButton: Button
     private lateinit var memoryStore: MemoryStore
+    private lateinit var conversationMemory: ConversationMemory
     private lateinit var voiceButton: Button
     private lateinit var modeButton: Button
     private var currentMode = "Обычный"
@@ -61,6 +62,8 @@ class MainActivity : Activity() {
         window.navigationBarColor = bg
         knowledgeFile = File(filesDir, "knowledge.jsonl")
         memoryStore = MemoryStore(this)
+        conversationMemory = ConversationMemory(this)
+        lastTopicQuestion = conversationMemory.lastUserMessage()
         tts = TextToSpeech(this) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
             if (ttsReady) tts?.language = Locale("ru", "RU")
@@ -185,7 +188,8 @@ class MainActivity : Activity() {
         val isFollowUp = listOf("а почему", "почему", "подробнее", "а пример", "пример", "а как", "что дальше", "и что", "чаро", "мисол").any {
             question.lowercase(Locale.ROOT).startsWith(it)
         }
-        val effectiveQuestion = if (isFollowUp && lastTopicQuestion.isNotBlank()) "$lastTopicQuestion $question" else question
+        val previousTopic = if (lastTopicQuestion.isNotBlank()) lastTopicQuestion else conversationMemory.lastUserMessage()
+        val effectiveQuestion = if (isFollowUp && previousTopic.isNotBlank()) "$previousTopic $question" else question
         if (!isFollowUp) lastTopicQuestion = question
         AcademyEngine.respond(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
         var local = findAnswer(effectiveQuestion)
@@ -239,6 +243,7 @@ class MainActivity : Activity() {
     }
 
     private fun addMessage(value: String, fromUser: Boolean) {
+        if (::conversationMemory.isInitialized) conversationMemory.add(value, fromUser)
         if (!fromUser && voiceOutput && ttsReady) {
             tts?.speak(value.take(2500), TextToSpeech.QUEUE_FLUSH, null, "nyxvault_reply")
         }
