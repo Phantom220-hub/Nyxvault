@@ -64,11 +64,11 @@ def train_neural(data_path=DATA, model_path=MODEL, epochs=EPOCHS):
                 if saved["chars"].tolist() == chars and all(saved[k].shape == v for k, v in expected.items()):
                     wxh, whh, why, bh, by = [saved[k].astype(np.float32).copy() for k in ("wxh","whh","why","bh","by")]
                     params = [wxh, whh, why, bh, by]
+                    previous_epochs = int(saved["epochs_total"][0]) if "epochs_total" in saved else 0
                     if all(f"adam_m_{i}" in saved and f"adam_v_{i}" in saved for i in range(5)):
                         adam_m = [saved[f"adam_m_{i}"].astype(np.float32).copy() for i in range(5)]
                         adam_v = [saved[f"adam_v_{i}"].astype(np.float32).copy() for i in range(5)]
                         adam_step = int(saved["adam_step"][0])
-                    previous_epochs = int(saved["epochs_total"][0]) if "epochs_total" in saved else 0
                     else:
                         adam_m = [np.zeros_like(p) for p in params]
                         adam_v = [np.zeros_like(p) for p in params]
