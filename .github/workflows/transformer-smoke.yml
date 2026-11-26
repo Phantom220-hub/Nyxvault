@@ -36,7 +36,7 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Compile training scripts
         run: |
-          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py
+          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py training/export_mobile.py training/test_mobile_export.py
       - name: Test causal attention and gradients
         run: python training/smoke_test.py
       - name: Build programming-focused dataset
