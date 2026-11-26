@@ -185,7 +185,11 @@ def main(argv: list[str] | None = None) -> None:
         device = torch.device("cpu")
 
     autocast_dtype, use_scaler = resolve_precision(args.precision, device)
-    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    try:
+        scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    except (AttributeError, TypeError):
+        # PyTorch 2.1/2.2 exposes the CUDA scaler through the older namespace.
+        scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
     cfg = {
         "d_model": args.d_model,
         "n_heads": args.n_heads,
