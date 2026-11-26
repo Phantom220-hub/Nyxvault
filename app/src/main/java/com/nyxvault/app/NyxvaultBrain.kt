@@ -18,6 +18,9 @@ class NyxvaultBrain : Closeable {
         return true
     }
 
+    fun academyResponse(question: String, teacherMode: Boolean = false): String? =
+        AcademyEngine.respond(question, teacherMode)
+
     fun answer(question: String, examples: List<Example>, conversationContext: String = ""): String {
         LinearEquationSolver.solve(question)?.let { return it }
         MathSolver.solve(question)?.let { return it }
