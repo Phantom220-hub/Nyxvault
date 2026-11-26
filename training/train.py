@@ -66,6 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", default="checkpoints")
     parser.add_argument("--steps", type=int, default=6000, help="optimizer update steps")
     parser.add_argument("--batch-size", type=int, default=8, help="micro-batch size")
+    parser.add_argument("--d-model", type=int, default=256)
+    parser.add_argument("--n-heads", type=int, default=8)
+    parser.add_argument("--n-layers", type=int, default=6)
     parser.add_argument("--grad-accum-steps", type=int, default=4)
     parser.add_argument("--block-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -114,6 +117,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--batch-size and --grad-accum-steps must be positive")
     if args.block_size < 2:
         parser.error("--block-size must be at least 2")
+    if args.d_model < 1 or args.n_heads < 1 or args.n_layers < 1:
+        parser.error("--d-model, --n-heads and --n-layers must be positive")
+    if args.d_model % args.n_heads != 0:
+        parser.error("--d-model must be divisible by --n-heads")
     if args.save_every < 1 or args.eval_interval < 1 or args.eval_batches < 1:
         parser.error("--save-every, --eval-interval and --eval-batches must be positive")
     if args.warmup_steps < 0 or args.warmup_steps >= args.steps:
@@ -169,9 +176,9 @@ def main(argv: list[str] | None = None) -> None:
     autocast_dtype, use_scaler = resolve_precision(args.precision, device)
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
     cfg = {
-        "d_model": 256,
-        "n_heads": 8,
-        "n_layers": 6,
+        "d_model": args.d_model,
+        "n_heads": args.n_heads,
+        "n_layers": args.n_layers,
         "block_size": args.block_size,
         "dropout": 0.1,
     }
