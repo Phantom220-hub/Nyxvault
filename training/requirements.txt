@@ -1,0 +1,5 @@
+numpy>=1.26
+torch>=2.1
+tokenizers>=0.15
+onnx>=1.15
+onnxruntime>=1.17
