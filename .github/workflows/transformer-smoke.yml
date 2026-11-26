@@ -1,6 +1,13 @@
 name: NYXVAULT Transformer smoke tests
 
 on:
+  push:
+    branches: [dev]
+    paths:
+      - "training/**"
+      - "data/knowledge.jsonl"
+      - "DATA_SOURCES.md"
+      - "TRAINING_GUIDE.md"
   pull_request:
     branches: [dev]
     paths:
