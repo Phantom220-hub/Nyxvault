@@ -28,11 +28,32 @@ GitHub Actions runs Kotlin tests and builds the debug APK.
 
 ## Train the one Transformer
 
-Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/dev/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook prepares the programming-first corpus, trains the tokenizer and Transformer, evaluates it, and exports:
+Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook prepares the programming-first corpus, trains the tokenizer and Transformer, evaluates it, and exports:
 - `nyxvault.onnx`
 - `tokenizer_mobile.json`
 
 The model is not bundled into the APK because trained weights are produced by the GPU training run. The app remains useful without it through local knowledge, math and reasoning tools.
+
+
+## Programming dataset format and checks
+
+New programming examples use the structured JSONL schema in `training/data_schema.py`. Each record includes an ID, curriculum level, language, topic, task type, instruction, expected solution, and license. Optional Python tests can be stored in the `tests` field. The eight-level curriculum is defined in `training/curriculum.py`.
+
+The data preparation script supports both this new schema and the existing legacy `question` / `answer` records. It preserves source-code indentation and URLs while normalizing line endings:
+
+```bash
+python training/prepare_data.py --input training_data/raw --knowledge data/knowledge.jsonl --out training_data
+```
+
+Validate the programming corpus and run its automated checks:
+
+```bash
+python training/validate_data.py training/programming_seed.jsonl
+python training/validate_data.py training_data/raw --exec-tests
+python -m unittest discover -s training/tests -v
+```
+
+Only use `--exec-tests` with trusted training data. It starts a subprocess with time and resource limits, but it is not a complete security sandbox.
 
 ## Connect the trained model on Android
 
