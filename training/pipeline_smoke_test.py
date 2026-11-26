@@ -82,23 +82,24 @@ def main() -> None:
             "--precision", "fp32",
             "--eval-interval", "1",
             "--eval-batches", "1",
-            "--save-every", str(args.steps),
+            "--device", "cpu",
             "--seed", "2026",
         ]
 
         print("Stage 1/2: CPU training on the prepared corpus")
-        run_training(common + ["--steps", str(args.steps)], "initial training")
+        initial_log = run_training(
+            common + ["--save-every", str(args.steps), "--steps", str(args.steps)],
+            "initial training",
+        )
+        if "val_loss=" not in initial_log:
+            raise RuntimeError("Initial training did not report a validation loss.")
         first_checkpoint = output_dir / f"step_{args.steps}.pt"
         if not first_checkpoint.is_file():
             raise RuntimeError(f"Trainer did not create checkpoint: {first_checkpoint}")
 
         print("Stage 2/2: resume the same run from its optimizer checkpoint")
         resumed_steps = args.steps + 1
-        resume_command = [
-            item for item in common
-            if item not in ("--save-every", str(args.steps))
-        ]
-        resume_command += [
+        resume_command = common + [
             "--save-every", str(resumed_steps),
             "--steps", str(resumed_steps),
             "--resume", str(first_checkpoint),
