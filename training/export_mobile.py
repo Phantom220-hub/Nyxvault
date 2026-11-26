@@ -52,9 +52,13 @@ def main():
     if bpe.get("type") != "BPE" or not bpe.get("vocab") or not bpe.get("merges"):
         raise SystemExit("Android export requires the project's ByteLevel BPE tokenizer.")
 
+    merges = [
+        " ".join(item) if isinstance(item, list) else str(item)
+        for item in bpe["merges"]
+    ]
     mobile_tokenizer = {
         "vocab": bpe["vocab"],
-        "merges": bpe["merges"],
+        "merges": merges,
         "unk_token": bpe.get("unk_token", "[UNK]"),
         "eos_token": "[EOS]",
         "normalizer": "NFKC",
