@@ -484,12 +484,14 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Android API, kept for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
         if (requestCode == speechRequestCode) {
-            val spoken = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+            if (resultCode == RESULT_OK) {
+                val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+                if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+            }
             return
         }
+        if (resultCode != RESULT_OK || data?.data == null) return
         if (requestCode == modelFileRequestCode || requestCode == tokenizerFileRequestCode) {
             val fileName = if (requestCode == modelFileRequestCode) "nyxvault.onnx" else "tokenizer_mobile.json"
             try {
