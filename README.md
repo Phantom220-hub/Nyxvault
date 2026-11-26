@@ -28,7 +28,7 @@ GitHub Actions runs Kotlin tests and builds the debug APK.
 
 ## Train the one Transformer
 
-Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook prepares the programming-first corpus, trains the tokenizer and Transformer, evaluates it, and exports:
+Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/programming-brain/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook uses the programming-brain branch, prepares the corpus, trains the tokenizer, runs a short CPU integration check against the prepared text, and then trains the full Transformer, evaluates it, and exports:
 - `nyxvault.onnx`
 - `tokenizer_mobile.json`
 
@@ -66,3 +66,12 @@ In NYXVAULT, tap **MODEL: OFF**. Import `nyxvault.onnx`, then import `tokenizer_
 - Android speech recognition depends on the speech service installed on the device.
 - The Transformer runs locally through ONNX Runtime after its files are imported.
 - The Transformer is experimental. Verify generated code and important facts; lower validation loss does not guarantee factual accuracy.
+
+
+Before committing to a long training run, the notebook now runs a short end-to-end CPU check on the prepared corpus:
+
+```bash
+python training/pipeline_smoke_test.py --data training/data/processed --tokenizer artifacts/tokenizer.json --steps 3 --block-size 32
+```
+
+This invokes the actual `training/train.py` script with a small model, checks finite train/validation loss, writes a checkpoint, and resumes from that checkpoint. It verifies training-pipeline mechanics only; it does not measure coding ability. The normal model defaults remain 256 dimensions, 8 attention heads, and 6 layers.
