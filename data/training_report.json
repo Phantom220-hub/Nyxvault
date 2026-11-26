@@ -5,9 +5,9 @@
   "neural_characters": 30787,
   "neural_vocabulary": 148,
   "neural_epochs_this_run": 100,
-  "neural_epochs_total": 400,
+  "neural_epochs_total": 500,
   "neural_resumed": true,
-  "neural_optimizer_steps": 102000,
-  "neural_loss": 0.9429,
-  "sample_generation": "Self-ant meus Godot?"
+  "neural_optimizer_steps": 127500,
+  "neural_loss": 0.9921,
+  "sample_generation": "O(n)?"
 }
