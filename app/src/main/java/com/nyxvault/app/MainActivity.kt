@@ -29,7 +29,7 @@ import android.util.Base64
 import kotlin.math.ln
 import kotlin.math.sqrt
 
-private data class Example(val question: String, val answer: String)
+data class Example(val question: String, val answer: String)
 
 class MainActivity : Activity() {
     private val bg = Color.rgb(7, 12, 24)
