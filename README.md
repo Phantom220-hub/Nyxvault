@@ -1,67 +1,47 @@
-# NYXVAULT
+# NYXVAULT 1.0 — one AI, one Android app
 
-**Created by:** Nyxvault Studio  
+**Project:** NYXVAULT — Nyxvault Studio  
 **Owner:** Акрамзод Анас
 
-NYXVAULT is an experimental local AI project built without external chat models, hosted inference APIs, or pretrained model weights.
+NYXVAULT is a single offline-first Android assistant. Its one brain combines verified local knowledge retrieval, evidence-based answers, math tools, learning lessons, local memory, optional web research, and an optional locally-run Transformer language model.
 
-## Two separate modes
+## One product, one brain
 
-- **Chat Mode:** read-only conversation using the locally trained knowledge index. It does not add examples or change the model.
-- **Teacher Mode:** requires the owner-set password. It accepts approved question/answer examples and rebuilds both local models when `/train` is run.
+- **Android app:** the only user-facing NYXVAULT application.
+- **Knowledge and reasoning:** one local knowledge file, ranked retrieval, evidence reasoning and math tools.
+- **Transformer:** the trainable generative model. After a trained ONNX model and `tokenizer_mobile.json` are imported, the same Android brain calls it when retrieval and deterministic tools cannot answer.
+- **Training tools:** Python scripts under `training/` prepare data, train the one Transformer, evaluate it and export Android files. They are build tools, not another chatbot.
+- **Memory and Academy:** conversation memory, long-term notes and lessons are services used by the same brain.
 
-## What "training" means in this version
+The old standalone Python chat, browser chat and character-level RNN are retired. Their duplicate interfaces and legacy model artifacts are no longer part of the product.
 
-The project now contains two learning components: a transparent TF-IDF retrieval index and a character-level vanilla RNN trained from random weights using NumPy and the project's own corpus. This is an educational mini-model with a bounded training workload for modest devices, not a modern large language model; generated text may be inaccurate or incoherent. It does not use external models, APIs, or pretrained weights.
+## Build Android APK
 
-The local corpus now includes programming fundamentals, Python, C++, algorithms, Git/GitHub, testing, Godot 3D, Android optimization, game graphics, and neural-network basics. Chat Mode keeps up to four recent exchanges in temporary session context; `/clear` removes that context.
-
-## Run
-
-Python 3.10+ (NumPy is required for neural training):
-
-```bash
-python -m pip install -r requirements.txt
-python train.py
-```
-
-### Browser interface (Android / desktop)\n\nStart the local web app:\n\n```bash\npython web_app.py\n```\n\nOpen `http://127.0.0.1:8765` in the same device's browser. The server binds only to localhost and keeps chat history in temporary session memory. To enable Teacher Mode, set the password environment variable before starting the server.\n\nSet a private password locally, then start:
-
-Linux/macOS/Termux:
-```bash
-export NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
-python app.py
-```
-
-Windows PowerShell:
-```powershell
-$env:NYXVAULT_TEACHER_PASSWORD='your-long-private-password'
-python app.py
-```
-
-In Teacher Mode, add examples as:
-
-```
-How do I make a player move in Godot? => Use CharacterBody3D...
-```
-
-Then run `/train` to rebuild the retrieval index and retrain the small neural network. Chat Mode never trains or writes to the corpus. If the retrieval index has no suitable answer and a neural model exists, it can show a clearly labelled experimental generated response.
-
-## Privacy
-
-Do not commit the Teacher Mode password, private conversations, personal data, or secret keys. Keep the repository private if you plan to add personal training material. The owner identity above is included as requested.
-
-
-## Native Android app
-
-A native Android client is included in `app/`. It runs fully offline and uses the project's own TF-IDF knowledge-retrieval algorithm implemented in Kotlin. The first launch copies the starter knowledge file into the app's private storage. Chat does not modify the knowledge base. Teacher Mode lets the owner create a local password and add question/answer examples on the device.
-
-Build the debug APK with:
+Requires JDK 17 and Gradle 8.9:
 
 ```bash
-gradle :app:assembleDebug
+gradle --no-daemon :app:testDebugUnitTest
+gradle --no-daemon :app:assembleDebug
 ```
 
-The GitHub Actions workflow `NYXVAULT Android APK` builds the APK and uploads it as the `NYXVAULT-Android-APK` artifact.
+GitHub Actions runs Kotlin tests and builds the debug APK.
 
-**Current Android scope:** this first native release runs the retrieval engine and editable local knowledge base. The experimental NumPy character-level RNN from `neural_brain.py` is not yet embedded in the Android app. This is not a general-purpose generative LLM; unknown questions may receive an honest fallback response.
+## Train the one Transformer
+
+Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/dev/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook prepares the programming-first corpus, trains the tokenizer and Transformer, evaluates it, and exports:
+- `nyxvault.onnx`
+- `tokenizer_mobile.json`
+
+The model is not bundled into the APK because trained weights are produced by the GPU training run. The app remains useful without it through local knowledge, math and reasoning tools.
+
+## Connect the trained model on Android
+
+In NYXVAULT, tap **MODEL: OFF**. Import `nyxvault.onnx`, then import `tokenizer_mobile.json`. The indicator changes to **MODEL: ON** when both files load successfully. Both files remain in app-private storage; no model files or personal knowledge are uploaded.
+
+## Data and privacy
+
+- Knowledge, long-term facts and recent conversation history are stored locally on the device.
+- WEB research is OFF by default and makes network requests only after the user explicitly enables it.
+- Android speech recognition depends on the speech service installed on the device.
+- The Transformer runs locally through ONNX Runtime after its files are imported.
+- The Transformer is experimental. Verify generated code and important facts; lower validation loss does not guarantee factual accuracy.

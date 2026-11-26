@@ -22,10 +22,12 @@ import android.widget.TextView
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
+import android.util.Base64
 import kotlin.math.ln
 import kotlin.math.sqrt
-
-private data class Example(val question: String, val answer: String)
 
 class MainActivity : Activity() {
     private val bg = Color.rgb(7, 12, 24)
@@ -40,7 +42,7 @@ class MainActivity : Activity() {
     private lateinit var knowledgeFile: File
     private var examples = mutableListOf<Example>()
     private var teacherUnlocked = false
-    private var webEnabled = true
+    private var webEnabled = false
     private var busy = false
     private lateinit var webButton: Button
     private lateinit var memoryStore: MemoryStore
@@ -55,12 +57,18 @@ class MainActivity : Activity() {
     private var ttsReady = false
     private val speechRequestCode = 7042
     private val audioPermissionCode = 7043
+    private val modelFileRequestCode = 7044
+    private val tokenizerFileRequestCode = 7045
+    private lateinit var brain: NyxvaultBrain
+    private lateinit var modelButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
         knowledgeFile = File(filesDir, "knowledge.jsonl")
+        brain = NyxvaultBrain()
+        reloadTransformer(notify = false)
         memoryStore = MemoryStore(this)
         conversationMemory = ConversationMemory(this)
         lastTopicQuestion = conversationMemory.lastUserMessage()
@@ -105,12 +113,17 @@ class MainActivity : Activity() {
         })
         val teacher = makeButton("TEACHER").apply { textSize = 10f; setOnClickListener { openTeacherGate() } }
         topRow.addView(teacher, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
-        webButton = makeButton("WEB: ON").apply { textSize = 10f; setOnClickListener {
+        webButton = makeButton("WEB: OFF").apply { textSize = 10f; setOnClickListener {
             webEnabled = !webEnabled
             text = if (webEnabled) "WEB: ON" else "WEB: OFF"
             updateStatus()
         } }
         topRow.addView(webButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
+        modelButton = makeButton("MODEL: OFF").apply {
+            textSize = 9f
+            setOnClickListener { showModelMenu() }
+        }
+        topRow.addView(modelButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
         root.addView(topRow)
 
         val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -191,12 +204,15 @@ class MainActivity : Activity() {
         val previousTopic = if (lastTopicQuestion.isNotBlank()) lastTopicQuestion else conversationMemory.lastUserMessage()
         val effectiveQuestion = if (isFollowUp && previousTopic.isNotBlank()) "$previousTopic $question" else question
         if (!isFollowUp) lastTopicQuestion = question
-        AcademyEngine.respond(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
-        var local = findAnswer(effectiveQuestion)
+        brain.academyResponse(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
         val questionTokens = tokenize(effectiveQuestion)
         val relevantMemory = memoryStore.all().filter { fact ->
             tokenize(fact).intersect(questionTokens).size >= 2
         }.take(3)
+        val context = conversationMemory.recent().takeLast(6).joinToString("\n") { row ->
+            (if (row.first) "Пользователь: " else "NYXVAULT: ") + row.second
+        }
+        var local = findAnswer(effectiveQuestion, context + "\n" + relevantMemory.joinToString("\n"))
         if (relevantMemory.isNotEmpty()) {
             local += "\n\nКОНТЕКСТ ИЗ ТВОЕЙ ПАМЯТИ:\n" + relevantMemory.joinToString("\n")
         }
@@ -292,48 +308,69 @@ class MainActivity : Activity() {
 
     private fun tokenize(value: String): Set<String> = IntelligenceEngine.tokens(value)
 
-    private fun findAnswer(question: String): String {
-        LinearEquationSolver.solve(question)?.let { return it }
-        MathSolver.solve(question)?.let { return it }
-        val ranked = IntelligenceEngine.rank(question, examples.map { it.question })
-            ?: return "Напиши вопрос — я попробую найти подходящий ответ."
-        if (ranked.score < 0.16) {
-            return "Я пока не нашёл достаточно надёжного совпадения в локальной базе.\n\n" +
-                "Попробуй переформулировать вопрос или добавь проверенное объяснение через Teacher Mode. " +
-                "Если включён WEB, могу показать найденные страницы, но их нужно проверять."
-        }
-        val answer = examples[ranked.index].answer
-        val framing = IntelligenceEngine.formatKnowledgeAnswer(question, answer, ranked.score)
-        val caution = IntelligenceEngine.uncertainty(ranked.score)
-        return if (caution.isBlank()) framing else "$framing\n\n$caution"
-    }
+    private fun findAnswer(question: String, context: String = ""): String = brain.answer(question, examples, context)
 
     private fun openTeacherGate() {
         val prefs = getSharedPreferences("nyxvault", MODE_PRIVATE)
-        val saved = prefs.getString("teacher_password", null)
+        val savedHash = prefs.getString("teacher_password_hash", null)
+        val savedSalt = prefs.getString("teacher_password_salt", null)
+        val legacyPassword = prefs.getString("teacher_password", null)
+        val hasPassword = (savedHash != null && savedSalt != null) || legacyPassword != null
         val field = EditText(this).apply {
-            hint = if (saved == null) "Создай пароль (минимум 6 символов)" else "Пароль Teacher Mode"
+            hint = if (!hasPassword) "Создай пароль (минимум 8 символов)" else "Пароль Teacher Mode"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         AlertDialog.Builder(this)
-            .setTitle(if (saved == null) "Настройка Teacher Mode" else "Вход в Teacher Mode")
-            .setMessage(if (saved == null) "Пароль хранится только на этом телефоне." else "Введи свой пароль.")
+            .setTitle(if (!hasPassword) "Настройка Teacher Mode" else "Вход в Teacher Mode")
+            .setMessage(if (!hasPassword) "Пароль будет храниться как PBKDF2-хэш с солью на этом телефоне." else "Введи свой пароль.")
             .setView(field)
             .setNegativeButton("Отмена", null)
-            .setPositiveButton(if (saved == null) "Создать" else "Войти") { _, _ ->
+            .setPositiveButton(if (!hasPassword) "Создать" else "Войти") { _, _ ->
                 val value = field.text.toString()
-                if (saved == null) {
-                    if (value.length < 6) toast("Пароль должен содержать минимум 6 символов.")
+                if (!hasPassword) {
+                    if (value.length < 8) toast("Пароль должен содержать минимум 8 символов.")
                     else {
-                        prefs.edit().putString("teacher_password", value).apply()
+                        saveTeacherPassword(prefs, value)
                         teacherUnlocked = true
                         showTeacherEditor()
                     }
-                } else if (value == saved) {
-                    teacherUnlocked = true
-                    showTeacherEditor()
-                } else toast("Неверный пароль.")
+                } else {
+                    val valid = if (savedHash != null && savedSalt != null) {
+                        verifyTeacherPassword(value, savedSalt, savedHash)
+                    } else value == legacyPassword
+                    if (valid) {
+                        if (legacyPassword != null) saveTeacherPassword(prefs, value)
+                        teacherUnlocked = true
+                        showTeacherEditor()
+                    } else toast("Неверный пароль.")
+                }
             }.show()
+    }
+
+    private fun saveTeacherPassword(prefs: android.content.SharedPreferences, password: String) {
+        val saltBytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val salt = Base64.encodeToString(saltBytes, Base64.NO_WRAP)
+        val hash = hashTeacherPassword(password, saltBytes)
+        prefs.edit().putString("teacher_password_salt", salt)
+            .putString("teacher_password_hash", hash)
+            .remove("teacher_password").apply()
+    }
+
+    private fun verifyTeacherPassword(password: String, salt: String, expectedHash: String): Boolean {
+        return try {
+            val saltBytes = Base64.decode(salt, Base64.NO_WRAP)
+            val actual = Base64.decode(hashTeacherPassword(password, saltBytes), Base64.NO_WRAP)
+            val expected = Base64.decode(expectedHash, Base64.NO_WRAP)
+            java.security.MessageDigest.isEqual(actual, expected)
+        } catch (_: Exception) { false }
+    }
+
+    private fun hashTeacherPassword(password: String, salt: ByteArray): String {
+        val spec = PBEKeySpec(password.toCharArray(), salt, 120_000, 256)
+        return try {
+            Base64.encodeToString(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded, Base64.NO_WRAP)
+        } finally { spec.clearPassword() }
     }
 
     private fun showTeacherEditor() {
@@ -450,20 +487,96 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Android API, kept for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == speechRequestCode && resultCode == RESULT_OK) {
-            val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+        if (requestCode == speechRequestCode) {
+            if (resultCode == RESULT_OK) {
+                val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+                if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+            }
+            return
+        }
+        if (resultCode != RESULT_OK || data?.data == null) return
+        if (requestCode == modelFileRequestCode || requestCode == tokenizerFileRequestCode) {
+            val fileName = if (requestCode == modelFileRequestCode) "nyxvault.onnx" else "tokenizer_mobile.json"
+            try {
+                val directory = File(filesDir, "nyxvault_model").apply { mkdirs() }
+                val target = File(directory, fileName)
+                val stream = contentResolver.openInputStream(data.data!!)
+                    ?: throw IllegalStateException("Не удалось открыть выбранный файл")
+                stream.use { source -> target.outputStream().use { destination -> source.copyTo(destination) } }
+                reloadTransformer(notify = true)
+            } catch (error: Exception) {
+                toast("Не удалось импортировать файл: ${error.message ?: "ошибка"}")
+            }
         }
     }
 
     override fun onDestroy() {
         tts?.stop()
         tts?.shutdown()
+        brain.close()
         super.onDestroy()
     }
 
+    private fun showModelMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Единый мозг NYXVAULT")
+            .setItems(arrayOf(
+                "Импортировать обученную модель (.onnx)",
+                "Импортировать tokenizer_mobile.json",
+                "Состояние модели"
+            )) { _, which ->
+                when (which) {
+                    0 -> openModelPicker(modelFileRequestCode, "application/octet-stream")
+                    1 -> openModelPicker(tokenizerFileRequestCode, "application/json")
+                    else -> {
+                        val ready = brain.hasTransformer
+                        AlertDialog.Builder(this)
+                            .setTitle("Transformer")
+                            .setMessage(if (ready) {
+                                "Обученная модель подключена. Локальный поиск знаний, решатели и Transformer работают через одно ядро."
+                            } else {
+                                "Transformer пока не подключён. Основное ядро уже работает: локальные знания, логика, математика и память. Импортируй ONNX-модель и tokenizer после обучения."
+                            })
+                            .setPositiveButton("Закрыть", null).show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun openModelPicker(requestCode: Int, mimeType: String) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+        }
+        startActivityForResult(intent, requestCode)
+    }
+
+    private fun reloadTransformer(notify: Boolean) {
+        val directory = File(filesDir, "nyxvault_model")
+        val model = File(directory, "nyxvault.onnx")
+        val tokenizer = File(directory, "tokenizer_mobile.json")
+        if (!model.isFile || !tokenizer.isFile) {
+            modelButtonOrNull("MODEL: OFF")
+            if (notify) toast("Файл сохранён. Для подключения нужны и ONNX-модель, и tokenizer.")
+            return
+        }
+        try {
+            brain.loadTransformer(model, tokenizer)
+            modelButtonOrNull("MODEL: ON")
+            if (notify) toast("Transformer подключён к единому ядру NYXVAULT.")
+        } catch (error: Exception) {
+            modelButtonOrNull("MODEL: ERROR")
+            if (notify) toast("Не удалось загрузить модель: ${error.message ?: "ошибка"}")
+        }
+    }
+
+    private fun modelButtonOrNull(label: String) {
+        if (::modelButton.isInitialized) modelButton.text = label
+        if (::status.isInitialized) updateStatus()
+    }
+
     private fun updateStatus() {
-        status.text = "● ${if (webEnabled) "WEB ON" else "OFFLINE"} • ${currentMode.uppercase(Locale.ROOT)} • ${examples.size} знаний • ${if (busy) "анализ..." else "готов"}"
+        status.text = "● ${if (webEnabled) "WEB ON" else "OFFLINE"} • ${currentMode.uppercase(Locale.ROOT)} • ${examples.size} знаний • ${if (brain.hasTransformer) "GPT ON" else "BASE"} • ${if (busy) "анализ..." else "готов"}"
     }
 
     private fun makeButton(label: String) = Button(this).apply {
