@@ -2,6 +2,8 @@ name: NYXVAULT Android APK
 on:
   push:
     branches: [main, dev]
+  pull_request:
+    branches: [dev]
   workflow_dispatch:
 jobs:
   build:
