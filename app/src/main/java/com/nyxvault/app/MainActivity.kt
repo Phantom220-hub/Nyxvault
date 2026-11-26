@@ -59,12 +59,18 @@ class MainActivity : Activity() {
     private var ttsReady = false
     private val speechRequestCode = 7042
     private val audioPermissionCode = 7043
+    private val modelFileRequestCode = 7044
+    private val tokenizerFileRequestCode = 7045
+    private lateinit var brain: NyxvaultBrain
+    private lateinit var modelButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
         knowledgeFile = File(filesDir, "knowledge.jsonl")
+        brain = NyxvaultBrain()
+        reloadTransformer(notify = false)
         memoryStore = MemoryStore(this)
         conversationMemory = ConversationMemory(this)
         lastTopicQuestion = conversationMemory.lastUserMessage()
@@ -115,6 +121,11 @@ class MainActivity : Activity() {
             updateStatus()
         } }
         topRow.addView(webButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
+        modelButton = makeButton("MODEL: OFF").apply {
+            textSize = 9f
+            setOnClickListener { showModelMenu() }
+        }
+        topRow.addView(modelButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
         root.addView(topRow)
 
         val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -296,22 +307,7 @@ class MainActivity : Activity() {
 
     private fun tokenize(value: String): Set<String> = IntelligenceEngine.tokens(value)
 
-    private fun findAnswer(question: String): String {
-        LinearEquationSolver.solve(question)?.let { return it }
-        MathSolver.solve(question)?.let { return it }
-        KnowledgeReasoner.answer(question, examples)?.let { return it }
-        val ranked = IntelligenceEngine.rank(question, examples.map { it.question })
-            ?: return "Напиши вопрос — я попробую найти подходящий ответ."
-        if (ranked.score < 0.16) {
-            return "Я пока не нашёл достаточно надёжного совпадения в локальной базе.\n\n" +
-                "Попробуй переформулировать вопрос или добавь проверенное объяснение через Teacher Mode. " +
-                "Если включён WEB, могу показать найденные страницы, но их нужно проверять."
-        }
-        val answer = examples[ranked.index].answer
-        val framing = IntelligenceEngine.formatKnowledgeAnswer(question, answer, ranked.score)
-        val caution = IntelligenceEngine.uncertainty(ranked.score)
-        return if (caution.isBlank()) framing else "$framing\n\n$caution"
-    }
+    private fun findAnswer(question: String): String = brain.answer(question, examples)
 
     private fun openTeacherGate() {
         val prefs = getSharedPreferences("nyxvault", MODE_PRIVATE)
@@ -490,20 +486,94 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Android API, kept for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == speechRequestCode && resultCode == RESULT_OK) {
-            val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (resultCode != RESULT_OK || data?.data == null) return
+        if (requestCode == speechRequestCode) {
+            val spoken = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) { input.setText(spoken); sendMessage() }
+            return
+        }
+        if (requestCode == modelFileRequestCode || requestCode == tokenizerFileRequestCode) {
+            val fileName = if (requestCode == modelFileRequestCode) "nyxvault.onnx" else "tokenizer_mobile.json"
+            try {
+                val directory = File(filesDir, "nyxvault_model").apply { mkdirs() }
+                val target = File(directory, fileName)
+                val stream = contentResolver.openInputStream(data.data!!)
+                    ?: throw IllegalStateException("Не удалось открыть выбранный файл")
+                stream.use { source -> target.outputStream().use { destination -> source.copyTo(destination) } }
+                reloadTransformer(notify = true)
+            } catch (error: Exception) {
+                toast("Не удалось импортировать файл: ${error.message ?: "ошибка"}")
+            }
         }
     }
 
     override fun onDestroy() {
         tts?.stop()
         tts?.shutdown()
+        brain.close()
         super.onDestroy()
     }
 
+    private fun showModelMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Единый мозг NYXVAULT")
+            .setItems(arrayOf(
+                "Импортировать обученную модель (.onnx)",
+                "Импортировать tokenizer_mobile.json",
+                "Состояние модели"
+            )) { _, which ->
+                when (which) {
+                    0 -> openModelPicker(modelFileRequestCode, "application/octet-stream")
+                    1 -> openModelPicker(tokenizerFileRequestCode, "application/json")
+                    else -> {
+                        val ready = brain.hasTransformer
+                        AlertDialog.Builder(this)
+                            .setTitle("Transformer")
+                            .setMessage(if (ready) {
+                                "Обученная модель подключена. Локальный поиск знаний, решатели и Transformer работают через одно ядро."
+                            } else {
+                                "Transformer пока не подключён. Основное ядро уже работает: локальные знания, логика, математика и память. Импортируй ONNX-модель и tokenizer после обучения."
+                            })
+                            .setPositiveButton("Закрыть", null).show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun openModelPicker(requestCode: Int, mimeType: String) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+        }
+        startActivityForResult(intent, requestCode)
+    }
+
+    private fun reloadTransformer(notify: Boolean) {
+        val directory = File(filesDir, "nyxvault_model")
+        val model = File(directory, "nyxvault.onnx")
+        val tokenizer = File(directory, "tokenizer_mobile.json")
+        if (!model.isFile || !tokenizer.isFile) {
+            modelButtonOrNull("MODEL: OFF")
+            if (notify) toast("Файл сохранён. Для подключения нужны и ONNX-модель, и tokenizer.")
+            return
+        }
+        try {
+            brain.loadTransformer(model, tokenizer)
+            modelButtonOrNull("MODEL: ON")
+            if (notify) toast("Transformer подключён к единому ядру NYXVAULT.")
+        } catch (error: Exception) {
+            modelButtonOrNull("MODEL: ERROR")
+            if (notify) toast("Не удалось загрузить модель: ${error.message ?: "ошибка"}")
+        }
+    }
+
+    private fun modelButtonOrNull(label: String) {
+        if (::modelButton.isInitialized) modelButton.text = label
+        if (::status.isInitialized) updateStatus()
+    }
+
     private fun updateStatus() {
-        status.text = "● ${if (webEnabled) "WEB ON" else "OFFLINE"} • ${currentMode.uppercase(Locale.ROOT)} • ${examples.size} знаний • ${if (busy) "анализ..." else "готов"}"
+        status.text = "● ${if (webEnabled) "WEB ON" else "OFFLINE"} • ${currentMode.uppercase(Locale.ROOT)} • ${examples.size} знаний • ${if (brain.hasTransformer) "GPT ON" else "BASE"} • ${if (busy) "анализ..." else "готов"}"
     }
 
     private fun makeButton(label: String) = Button(this).apply {
