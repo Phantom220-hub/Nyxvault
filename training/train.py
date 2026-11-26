@@ -183,6 +183,8 @@ def main(argv: list[str] | None = None) -> None:
         weight_decay=args.weight_decay,
     )
 
+    train_generator = torch.Generator(device="cpu").manual_seed(args.seed + 1)
+
     output_dir = Path(args.out)
     output_dir.mkdir(parents=True, exist_ok=True)
     start_step = 0
@@ -212,14 +214,13 @@ def main(argv: list[str] | None = None) -> None:
         best_validation_loss = float(checkpoint.get("best_val", best_validation_loss))
         if "rng_state" in checkpoint:
             _restore_rng_state(checkpoint["rng_state"])
+        if "batch_rng_state" in checkpoint:
+            train_generator.set_state(checkpoint["batch_rng_state"])
         if start_step >= args.steps:
             raise SystemExit(
                 f"Checkpoint is already at step {start_step}; set --steps to a larger total."
             )
         print(f"Resumed from {resume_path} at optimizer step {start_step}", flush=True)
-
-    train_generator = torch.Generator(device="cpu").manual_seed(args.seed + 1)
-    eval_generator = torch.Generator(device="cpu").manual_seed(args.seed + 2)
 
     def make_batch(tokens: torch.Tensor, generator: torch.Generator) -> Tuple[torch.Tensor, torch.Tensor]:
         max_start = len(tokens) - args.block_size - 1
@@ -326,6 +327,7 @@ def main(argv: list[str] | None = None) -> None:
                 "step": step,
                 "best_val": best_validation_loss,
                 "rng_state": _rng_state(),
+                "batch_rng_state": train_generator.get_state(),
                 "training": {
                     "seed": args.seed,
                     "precision": args.precision,
