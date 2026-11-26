@@ -53,7 +53,7 @@ python training/validate_data.py training_data/raw --exec-tests
 python -m unittest discover -s training/tests -v
 ```
 
-Only use `--exec-tests` with trusted training data. It starts a subprocess with time and resource limits, but it is not a complete security sandbox.
+Only use `--exec-tests` with trusted training data. It starts a subprocess with a timeout and, on POSIX systems, CPU/address-space limits; it is not a complete security sandbox.
 
 ## Connect the trained model on Android
 
