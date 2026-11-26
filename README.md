@@ -42,7 +42,7 @@ New programming examples use the structured JSONL schema in `training/data_schem
 The data preparation script supports both this new schema and the existing legacy `question` / `answer` records. It preserves source-code indentation and URLs while normalizing line endings:
 
 ```bash
-python training/prepare_data.py --input training/data/raw --knowledge data/knowledge.jsonl --out training_data
+python training/prepare_data.py --input training/data/raw --knowledge data/knowledge.jsonl --out training/data/processed
 ```
 
 Validate the programming corpus and run its automated checks:
