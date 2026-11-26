@@ -10,7 +10,7 @@ class CausalSelfAttention(nn.Module):
         self.n_heads=n_heads; self.head_dim=d_model//n_heads
         self.qkv=nn.Linear(d_model,3*d_model); self.proj=nn.Linear(d_model,d_model)
         self.attn_drop=nn.Dropout(dropout); self.resid_drop=nn.Dropout(dropout)
-            def forward(self,x):
+    def forward(self,x):
         b,t,c=x.shape
         q,k,v=self.qkv(x).chunk(3,dim=-1)
         def split(z): return z.view(b,t,self.n_heads,self.head_dim).transpose(1,2)
