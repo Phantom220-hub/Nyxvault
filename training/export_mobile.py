@@ -34,7 +34,7 @@ def main():
     target = Path(args.out)
     target.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(
-        Export(model),
+        Export(model).eval(),
         torch.ones((1, 16), dtype=torch.long),
         str(target),
         input_names=["input_ids"],
@@ -44,6 +44,7 @@ def main():
             "logits": {0: "batch", 1: "sequence"},
         },
         opset_version=17,
+        dynamo=False,
     )
 
     tokenizer = Tokenizer.from_file(args.tokenizer)
