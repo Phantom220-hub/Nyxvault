@@ -1,24 +1,19 @@
-# NYXVAULT 0.7.0
+# NYXVAULT 1.0 — one AI, one Android app
 
 **Project:** NYXVAULT — Nyxvault Studio  
 **Owner:** Акрамзод Анас
 
-NYXVAULT is an experimental offline-first Android assistant and a separate Python learning prototype. It is a retrieval-based system, **not** a general-purpose large language model and not comparable to Claude or ChatGPT.
+NYXVAULT is a single offline-first Android assistant. Its one brain combines verified local knowledge retrieval, evidence-based answers, math tools, learning lessons, local memory, optional web research, and an optional locally-run Transformer language model.
 
-## Android app
+## One product, one brain
 
-- Native Kotlin Android application.
-- Local question/answer knowledge base, copied to app-private storage on first launch.
-- Teacher Mode for adding local knowledge.
-- Teacher password is stored as a PBKDF2-HMAC-SHA256 hash with a random salt. Existing plaintext passwords are migrated after a successful login.
-- Local long-term facts and a rolling conversation history.
-- Basic retrieval, limited linear-equation and arithmetic tools.
-- Speech recognition and Android Text-to-Speech, depending on installed device services.
-- Web research is **OFF by default**. Tap the WEB toggle to enable it explicitly; turn it off again to return to offline-only chat.
+- **Android app:** the only user-facing NYXVAULT application.
+- **Knowledge and reasoning:** one local knowledge file, ranked retrieval, evidence reasoning and math tools.
+- **Transformer:** the trainable generative model. After a trained ONNX model and `tokenizer_mobile.json` are imported, the same Android brain calls it when retrieval and deterministic tools cannot answer.
+- **Training tools:** Python scripts under `training/` prepare data, train the one Transformer, evaluate it and export Android files. They are build tools, not another chatbot.
+- **Memory and Academy:** conversation memory, long-term notes and lessons are services used by the same brain.
 
-## Python prototype
-
-The root Python scripts are a separate prototype. They use a local TF-IDF retrieval index and an experimental character-level RNN trained with NumPy. The RNN may generate incoherent text and is not embedded in the Android application.
+The old standalone Python chat, browser chat and character-level RNN are retired. Their duplicate interfaces and legacy model artifacts are no longer part of the product.
 
 ## Build Android APK
 
@@ -29,26 +24,24 @@ gradle --no-daemon :app:testDebugUnitTest
 gradle --no-daemon :app:assembleDebug
 ```
 
-The GitHub Actions workflow runs Kotlin unit tests before assembling the debug APK. The artifact is named `NYXVAULT-Android-APK`.
+GitHub Actions runs Kotlin tests and builds the debug APK.
 
-## Run Python tests and training
+## Train the one Transformer
 
-Python 3.12 and NumPy:
+Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/dev/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook prepares the programming-first corpus, trains the tokenizer and Transformer, evaluates it, and exports:
+- `nyxvault.onnx`
+- `tokenizer_mobile.json`
 
-```bash
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
-python train.py
-```
+The model is not bundled into the APK because trained weights are produced by the GPU training run. The app remains useful without it through local knowledge, math and reasoning tools.
 
-## Privacy and limitations
+## Connect the trained model on Android
 
-- Android knowledge, facts, and conversation history are stored in the app's private local storage.
-- Web research makes network requests only after the user explicitly enables WEB.
-- Android voice recognition may use an external system speech service; offline availability depends on the device.
-- No cloud LLM, local LLM, Stockfish engine, 200-puzzle bank, general equation solver, or semantic memory system is included.
-- No device-level ANR, memory, microphone, or TTS verification is claimed. See [BLOCKERS.md](BLOCKERS.md) for outstanding work.
+In NYXVAULT, tap **MODEL: OFF**. Import `nyxvault.onnx`, then import `tokenizer_mobile.json`. The indicator changes to **MODEL: ON** when both files load successfully. Both files remain in app-private storage; no model files or personal knowledge are uploaded.
 
-## Add knowledge
+## Data and privacy
 
-Open Teacher Mode in the Android app, set a password, then add a question and a verified answer. The Android knowledge base remains local to that installation. Python training data is stored separately in `data/knowledge.jsonl`.
+- Knowledge, long-term facts and recent conversation history are stored locally on the device.
+- WEB research is OFF by default and makes network requests only after the user explicitly enables it.
+- Android speech recognition depends on the speech service installed on the device.
+- The Transformer runs locally through ONNX Runtime after its files are imported.
+- The Transformer is experimental. Verify generated code and important facts; lower validation loss does not guarantee factual accuracy.

@@ -32,11 +32,11 @@ jobs:
       - name: Install CPU test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy tokenizers
+          python -m pip install numpy tokenizers onnx onnxruntime onnxscript
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Compile training scripts
         run: |
-          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py
+          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py training/export_mobile.py training/test_mobile_export.py
       - name: Test causal attention and gradients
         run: python training/smoke_test.py
       - name: Build programming-focused dataset
@@ -45,3 +45,5 @@ jobs:
           cp training/programming_seed.jsonl /tmp/nyxvault-raw/
           python training/prepare_data.py --input /tmp/nyxvault-raw --knowledge data/knowledge.jsonl --out /tmp/nyxvault-data
           python training/train_tokenizer.py --input /tmp/nyxvault-data/train.txt --output /tmp/nyxvault-tokenizer.json --vocab-size 8000
+      - name: Verify Android ONNX and tokenizer export
+        run: python training/test_mobile_export.py --tokenizer /tmp/nyxvault-tokenizer.json

@@ -1,12 +1,8 @@
-# Blockers and unverified items
+# Current limitations and verification
 
-- Device-level testing on a Samsung Galaxy A16 is not available from GitHub Actions; ANR, actual memory use, microphone/TTS behavior, and UI flows remain unverified until tested on-device.
-- Android password migration from legacy plaintext preferences is implemented but needs a real upgrade-path test on an existing installation.
-- Python retrieval quality and the proposed 50+ Russian control-question benchmark are not yet measured.
-- BM25, Russian Snowball stemming, character n-gram typo matching, full fact editing, expanded math tools, puzzle bank, chess engine, settings screens, and full README rewrite remain outstanding unless explicitly covered by later commits.
-- No local or cloud LLM is included. A genuinely large context window and general-purpose reasoning are therefore unavailable.
-
-## From-scratch LLM training
-- Training scripts and Kaggle notebook have been added on dev. No training has been run by the assistant; no model metrics exist yet.
-- Corpus currently includes project knowledge and Wikimedia API text only when the user launches the notebook. Tajik essays written by the user are not included until supplied/authorized.
-- Android integration is not implemented; model export is experimental and must be tested after training.
+- The Android app is the only user-facing NYXVAULT product. Retrieval, math, evidence reasoning, Academy, memory and optional Transformer inference are coordinated by NyxvaultBrain.
+- Transformer training still requires a GPU session in Colab/Kaggle. No completed full-size Transformer checkpoint is claimed until a training archive with metrics exists.
+- Android model import and ONNX inference must be tested on a physical device, including memory use, speed and output quality.
+- Generated answers are experimental and must be checked; perplexity is not a factuality score.
+- Device-level microphone, TTS, Android lifecycle and ANR checks require a real device.
+- WEB research is optional and disabled by default.
