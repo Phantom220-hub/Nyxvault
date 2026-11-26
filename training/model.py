@@ -10,13 +10,12 @@ class CausalSelfAttention(nn.Module):
         self.n_heads=n_heads; self.head_dim=d_model//n_heads
         self.qkv=nn.Linear(d_model,3*d_model); self.proj=nn.Linear(d_model,d_model)
         self.attn_drop=nn.Dropout(dropout); self.resid_drop=nn.Dropout(dropout)
-        self.register_buffer("mask",torch.tril(torch.ones(block_size,block_size)).view(1,1,block_size,block_size),persistent=False)
     def forward(self,x):
         b,t,c=x.shape
         q,k,v=self.qkv(x).chunk(3,dim=-1)
         def split(z): return z.view(b,t,self.n_heads,self.head_dim).transpose(1,2)
         q,k,v=map(split,(q,k,v))
-        y=F.scaled_dot_product_attention(q,k,v,attn_mask=self.mask[:,:,:t,:t],dropout_p=self.attn_drop.p if self.training else 0.0)
+        y=F.scaled_dot_product_attention(q,k,v,is_causal=True,dropout_p=self.attn_drop.p if self.training else 0.0)
         y=y.transpose(1,2).contiguous().view(b,t,c)
         return self.resid_drop(self.proj(y))
 
