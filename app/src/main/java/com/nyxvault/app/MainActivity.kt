@@ -204,12 +204,15 @@ class MainActivity : Activity() {
         val previousTopic = if (lastTopicQuestion.isNotBlank()) lastTopicQuestion else conversationMemory.lastUserMessage()
         val effectiveQuestion = if (isFollowUp && previousTopic.isNotBlank()) "$previousTopic $question" else question
         if (!isFollowUp) lastTopicQuestion = question
-        AcademyEngine.respond(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
-        var local = findAnswer(effectiveQuestion)
+        brain.academyResponse(effectiveQuestion, currentMode == "Учитель")?.let { addMessage(it, false); return }
         val questionTokens = tokenize(effectiveQuestion)
         val relevantMemory = memoryStore.all().filter { fact ->
             tokenize(fact).intersect(questionTokens).size >= 2
         }.take(3)
+        val context = conversationMemory.recent().takeLast(6).joinToString("\n") { row ->
+            (if (row.first) "Пользователь: " else "NYXVAULT: ") + row.second
+        }
+        var local = findAnswer(effectiveQuestion, context + "\n" + relevantMemory.joinToString("\n"))
         if (relevantMemory.isNotEmpty()) {
             local += "\n\nКОНТЕКСТ ИЗ ТВОЕЙ ПАМЯТИ:\n" + relevantMemory.joinToString("\n")
         }
@@ -305,7 +308,7 @@ class MainActivity : Activity() {
 
     private fun tokenize(value: String): Set<String> = IntelligenceEngine.tokens(value)
 
-    private fun findAnswer(question: String): String = brain.answer(question, examples)
+    private fun findAnswer(question: String, context: String = ""): String = brain.answer(question, examples, context)
 
     private fun openTeacherGate() {
         val prefs = getSharedPreferences("nyxvault", MODE_PRIVATE)
