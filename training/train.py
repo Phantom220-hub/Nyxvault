@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--precision", choices=("auto", "fp32", "fp16", "bf16"), default="auto")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--eval-interval", type=int, default=100)
     parser.add_argument("--eval-batches", type=int, default=20)
     parser.add_argument("--save-every", type=int, default=500)
@@ -166,7 +167,17 @@ def main(argv: list[str] | None = None) -> None:
     if len(validation_tokens) < args.block_size + 2:
         raise SystemExit("Validation corpus is too small for --block-size.")
 
-    if torch.cuda.is_available():
+    if args.device == "cpu":
+        device = torch.device("cpu")
+    elif args.device == "cuda":
+        if not torch.cuda.is_available():
+            parser.error("--device cuda requested, but CUDA is not available")
+        device = torch.device("cuda")
+    elif args.device == "mps":
+        if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+            parser.error("--device mps requested, but MPS is not available")
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
         device = torch.device("cuda")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
