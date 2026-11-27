@@ -76,3 +76,15 @@ python training/pipeline_smoke_test.py --data training/data/processed --tokenize
 ```
 
 This invokes the actual `training/train.py` script with a small model, checks finite train/validation loss, writes a checkpoint, and resumes from that checkpoint. It verifies training-pipeline mechanics only; it does not measure coding ability. The normal model defaults are 256 dimensions, 8 attention heads, 6 layers and a 512-token context.
+
+## Instruction fine-tuning (SFT)
+
+After the base model has a saved full checkpoint such as `/content/nyxvault-output/checkpoints/step_600.pt`, open the [NYXVAULT SFT Colab notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It downloads the current `main` source, generates a deterministic 5,000-record starter instruction corpus (1,000 each for Python, JavaScript/TypeScript, algorithms, debugging and Godot/GDScript), validates its schema and Python examples, then runs a separate 100-step SFT stage.
+
+SFT source files:
+- `training/generate_instruction_dataset.py` — deterministic dataset generator.
+- `training/finetune_instructions.py` — instruction fine-tuning with prompt-loss masking, stratified validation and resumable `sft_step_N.pt` checkpoints.
+- `training/generate_instruction.py` — instruction-formatted inference.
+
+The 5,000 records are template-authored parameter variations, not 5,000 separately human-reviewed tasks. The corpus is generated in Colab and is not duplicated as a large generated JSONL file in GitHub. The base checkpoint `step_600.pt` is read-only during SFT; SFT results are saved under `/content/nyxvault-output/sft_checkpoints`. Save `nyxvault-output` to Google Drive after every stage because Colab's `/content` storage is temporary.
+
