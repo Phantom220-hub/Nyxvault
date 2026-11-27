@@ -1,1 +1,1 @@
-One-time trigger for the isolated NYXVAULT Godot SFT pilot workflow. Source checkpoint and raw dataset remain unchanged.
+NYXVAULT continued SFT run: resume sft_step_25.pt, train on canonical 38-record project dataset, save merged sft_step_50.pt. Triggered 2026-11-27.
