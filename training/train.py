@@ -64,7 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", default="training_data")
     parser.add_argument("--tokenizer", default="artifacts/tokenizer.json")
     parser.add_argument("--out", default="checkpoints")
-    parser.add_argument("--steps", type=int, default=6000, help="optimizer update steps")
+    parser.add_argument("--steps", type=int, default=6000, help="total optimizer update steps for the full run")
+    parser.add_argument("--max-steps", type=int, default=0, help="maximum new optimizer steps in this invocation; 0 runs to --steps")
     parser.add_argument("--batch-size", type=int, default=8, help="micro-batch size")
     parser.add_argument("--d-model", type=int, default=256)
     parser.add_argument("--n-heads", type=int, default=8)
@@ -116,6 +117,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.steps < 1:
         parser.error("--steps must be positive")
+    if args.max_steps < 0:
+        parser.error("--max-steps cannot be negative")
     if args.batch_size < 1 or args.grad_accum_steps < 1:
         parser.error("--batch-size and --grad-accum-steps must be positive")
     if args.block_size < 2:
@@ -284,7 +287,11 @@ def main(argv: list[str] | None = None) -> None:
 
     model.train()
     optimizer.zero_grad(set_to_none=True)
-    for step in range(start_step, args.steps):
+    end_step = args.steps if args.max_steps == 0 else min(args.steps, start_step + args.max_steps)
+    if end_step <= start_step:
+        raise SystemExit(f"No training steps left to run: start={start_step}, end={end_step}.")
+    print(f"Training range: {start_step + 1}..{end_step} of {args.steps}", flush=True)
+    for step in range(start_step, end_step):
         learning_rate = learning_rate_at_step(
             step, args.steps, args.lr, args.warmup_steps, args.min_lr_ratio
         )
@@ -352,7 +359,7 @@ def main(argv: list[str] | None = None) -> None:
                     output_dir / "best.pt",
                 )
 
-        if (step + 1) == args.save_first_checkpoint or (step + 1) % args.save_every == 0 or step + 1 == args.steps:
+        if (step + 1) == args.save_first_checkpoint or (step + 1) % args.save_every == 0 or step + 1 == end_step:
             checkpoint = {
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
@@ -377,10 +384,10 @@ def main(argv: list[str] | None = None) -> None:
             torch.save(checkpoint, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}", flush=True)
 
-    print(
-        f"Training finished. Best validation loss: {best_validation_loss:.6f}",
-        flush=True,
-    )
+    if end_step < args.steps:
+        print(f"Training paused safely at step {end_step}/{args.steps}. Resume from step_{end_step}.pt.", flush=True)
+    else:
+        print(f"Training finished. Best validation loss: {best_validation_loss:.6f}", flush=True)
 
 
 if __name__ == "__main__":
