@@ -89,3 +89,30 @@ SFT source files:
 The 5,000 records are template-authored parameter variations, not 5,000 separately human-reviewed tasks. The corpus is generated in Colab and is not duplicated as a large generated JSONL file in GitHub. The base checkpoint `step_600.pt` is read-only during SFT; SFT results are saved under `/content/nyxvault-output/sft_checkpoints`. Save `nyxvault-output` to Google Drive after every stage because Colab's `/content` storage is temporary.
 
 The base-training notebook is staged: its default run is the first 100 updates of the 5,000-step base schedule. Continue from the newest saved `step_N.pt` checkpoint before beginning SFT. The SFT notebook automatically selects the newest `step_*.pt` file in the base `checkpoints/` folder. It never uses or overwrites an SFT checkpoint as a base model.
+
+## Complete repository map
+
+All active NYXVAULT source code, app code, training code, seed datasets, notebooks, tests, schemas, evaluation scripts, and export tools live in this **one repository** on `main`.
+
+- `app/` — the Android application and its local intelligence services.
+- `data/` — the app's knowledge corpus.
+- `training/` — the base Transformer, tokenizer, base-training notebook, 5,000-record instruction-data generator, SFT trainer, inference script, validation tools, tests, and mobile export.
+- `training/data/` — the canonical programming seed datasets and structured project examples.
+- `artifacts/` — artifact policy and instructions.
+- `legacy/` — source files preserved from earlier prototype branches. They are archived and are not part of the active build.
+- `MODEL_CARD.md` — model architecture, data, observed validation results and limitations.
+
+## One-repository training workflow
+
+1. Open the [base training Colab](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) to create or continue the base Transformer checkpoint.
+2. Save the full `nyxvault-output` folder to `Google Drive / MyDrive / NYXVAULT / nyxvault-output`.
+3. Open the [instruction SFT Colab](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It restores the saved folder when the temporary Colab runtime is fresh, fetches current source from this repository, generates and validates the instruction dataset, and trains SFT into a separate `sft_checkpoints/` directory.
+4. The SFT notebook packages model checkpoints, tokenizer, processed data, generated instruction JSONL and validation report into one ZIP and saves it to Google Drive.
+5. To publish that binary ZIP inside this same GitHub repository, add a private Colab Secret named `NYXVAULT_GITHUB_TOKEN` with permission to create and upload repository Releases, then run the optional final notebook cell. The cell calls `training/publish_release_assets.py`. Never paste the token into a notebook cell or chat.
+
+Large binary weights are stored as assets in this repository's GitHub Releases, not as regular Git files. This keeps the source tree usable while keeping trained model artifacts attached to the same project. They are not present in GitHub until the owner uploads them from the Colab session.
+
+## Archived branches
+
+Earlier Python/NumPy prototypes from `neural-integration` and `training/programming-focus` are preserved under `legacy/` for history. Their old workflows are deliberately stored outside the root `.github/workflows/` path and cannot run as active Actions workflows. The earlier `dev` / `feature/unified-nyxvault-brain` programming seed file is an exact subset of the current 103-record seed file, so it is not duplicated.
+
