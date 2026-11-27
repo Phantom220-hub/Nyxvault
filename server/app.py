@@ -53,7 +53,7 @@ def prepare_model_files() -> None:
 
     print("NYXVAULT: reading the public GitHub release with HTTP range requests", flush=True)
     try:
-        with RemoteZip(ARCHIVE_URL) as archive:
+        with RemoteZip(ARCHIVE_URL, timeout=(15, 45)) as archive:
             names = archive.namelist()
             onnx_name = find_entry(names, "nyxvault.onnx")
             tokenizer_name = find_entry(names, "tokenizer.json")
