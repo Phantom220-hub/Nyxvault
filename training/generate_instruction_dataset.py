@@ -154,7 +154,7 @@ def js_task(i):
         code = ("function wordFrequencies(text: string): Map<string, number>" if typed else "function wordFrequencies(text)") + " {\n  const counts = new Map();\n  for (const word of text.split(/\\s+/).filter(Boolean)) {\n    counts.set(word, (counts.get(word) ?? 0) + 1);\n  }\n  return counts;\n}"
         ins = "Создай wordFrequencies(text), возвращающую Map с частотой каждого слова."
         expl = "Map хранит пары слово-частота; nullish coalescing задаёт начальный ноль."
-        topic = "serialization-and-json"
+        topic = "api-design"
     return make("js_ts", i, 7, lang, topic, "write_code", ins,
                 expl + "\n\n" + fence(lang, code))
 
