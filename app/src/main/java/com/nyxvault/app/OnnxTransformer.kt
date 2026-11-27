@@ -15,7 +15,7 @@ import kotlin.random.Random
 class OnnxTransformer(
     modelFile: File,
     tokenizerFile: File,
-    private val blockSize: Int = 256
+    private val blockSize: Int = 512
 ) : Closeable {
     private val environment = OrtEnvironment.getEnvironment()
     private val session: OrtSession
@@ -28,13 +28,13 @@ class OnnxTransformer(
         session = environment.createSession(modelFile.absolutePath, OrtSession.SessionOptions())
     }
 
-    fun generate(prompt: String, maxNewTokens: Int = 96, temperature: Float = 0.8f): String {
+    fun generate(prompt: String, maxNewTokens: Int = 384, temperature: Float = 0.8f): String {
         val ids = tokenizer.encode(prompt).takeLast(blockSize).toMutableList()
         if (ids.isEmpty()) return ""
         val generated = ArrayList<Int>()
         val random = Random.Default
 
-        repeat(maxNewTokens.coerceIn(1, 160)) {
+        repeat(maxNewTokens.coerceIn(1, 512)) {
             val context = ids.takeLast(blockSize).map(Int::toLong).toLongArray()
             val input = OnnxTensor.createTensor(
                 environment,
