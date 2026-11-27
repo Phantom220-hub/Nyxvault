@@ -79,7 +79,7 @@ This invokes the actual `training/train.py` script with a small model, checks fi
 
 ## Instruction fine-tuning (SFT)
 
-After the base model has a saved full checkpoint such as `/content/nyxvault-output/checkpoints/step_600.pt`, open the [NYXVAULT SFT Colab notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It downloads the current `main` source, generates a deterministic 5,000-record starter instruction corpus (1,000 each for Python, JavaScript/TypeScript, algorithms, debugging and Godot/GDScript), validates its schema and Python examples, then runs a separate 100-step SFT stage.
+After the base model has a saved full checkpoint such as `/content/nyxvault-output/checkpoints/step_600.pt` (or another `step_N.pt` checkpoint), open the [NYXVAULT SFT Colab notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It downloads the current `main` source, generates a deterministic 5,000-record starter instruction corpus (1,000 each for Python, JavaScript/TypeScript, algorithms, debugging and Godot/GDScript), validates its schema and Python examples, then runs a separate 100-step SFT stage.
 
 SFT source files:
 - `training/generate_instruction_dataset.py` — deterministic dataset generator.
@@ -88,3 +88,4 @@ SFT source files:
 
 The 5,000 records are template-authored parameter variations, not 5,000 separately human-reviewed tasks. The corpus is generated in Colab and is not duplicated as a large generated JSONL file in GitHub. The base checkpoint `step_600.pt` is read-only during SFT; SFT results are saved under `/content/nyxvault-output/sft_checkpoints`. Save `nyxvault-output` to Google Drive after every stage because Colab's `/content` storage is temporary.
 
+The base-training notebook is staged: its default run is the first 100 updates of the 5,000-step base schedule. Continue from the newest saved `step_N.pt` checkpoint before beginning SFT. The SFT notebook automatically selects the newest `step_*.pt` file in the base `checkpoints/` folder. It never uses or overwrites an SFT checkpoint as a base model.
