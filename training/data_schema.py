@@ -73,7 +73,7 @@ TEXT_FIELDS: Tuple[str, ...] = ("instruction", "input", "output")
 
 # (минимум, максимум) длины в символах после нормализации.
 FIELD_LIMITS: Dict[str, Tuple[int, int]] = {
-    "instruction": (8, 4000),
+    "instruction": (1, 4000),
     "input": (1, 24000),
     "output": (1, 32000),
 }
