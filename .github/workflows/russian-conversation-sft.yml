@@ -1,0 +1,123 @@
+name: NYXVAULT Russian conversation SFT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/RUSSIAN_SFT_START.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  russian-sft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download checkpoint and tokenizer
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nyx-base
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/base.zip
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+          with ZipFile("/tmp/base.zip") as z:
+              matches=[n for n in z.namelist() if Path(n).name=="tokenizer.json"]
+              if len(matches)!=1: raise SystemExit(f"Expected tokenizer.json, found {matches}")
+              with z.open(matches[0]) as src, open("/tmp/nyx-base/tokenizer.json","wb") as dst: shutil.copyfileobj(src,dst)
+          PY
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" -o /tmp/nyx-base/sft_step_50.pt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers pandas pyarrow huggingface_hub
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Download and convert dataset
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python - <<'PY'
+          import pandas as pd, json, urllib.request, random
+          from pathlib import Path
+          url="https://huggingface.co/datasets/ZeroAgency/ru-instruct-conversation-v1/resolve/main/data/train-00000-of-00001.parquet"
+          urllib.request.urlretrieve(url,"/tmp/ru.parquet")
+          df=pd.read_parquet("/tmp/ru.parquet")
+          out=[]; seen=set()
+          for row in df.itertuples():
+              conv=getattr(row,"conversation",None)
+              if not isinstance(conv,list): continue
+              messages=[]
+              for m in conv:
+                  if isinstance(m,dict):
+                      role=str(m.get("role","")).lower()
+                      content=str(m.get("content","")).strip()
+                      if role in ("user","assistant") and content: messages.append((role,content))
+              for i in range(len(messages)-1):
+                  if messages[i][0]=="user" and messages[i+1][0]=="assistant":
+                      q,a=messages[i][1],messages[i+1][1]
+                      if not q or not a or len(q)>3500 or len(a)>3500: continue
+                      key=(q.strip(),a.strip())
+                      if key in seen: continue
+                      seen.add(key)
+                      out.append({"id":f"ruconv_{len(out)+1:06d}","level":1,"language":"python","topic":"input-output","type":"explain","instruction":q,"output":a,"license":"mit","tags":["russian_chat"],"source":"ZeroAgency/ru-instruct-conversation-v1"})
+          random.Random(2026).shuffle(out)
+          out=out[:6000]
+          p=Path("training/data/russian_chat_prepared.jsonl"); p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in out),encoding="utf-8")
+          print("Prepared records:",len(out))
+          if len(out)<500: raise SystemExit("Too few prepared examples")
+          PY
+      - name: Filter context length
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tokenizers import Tokenizer
+          tok=Tokenizer.from_file("/tmp/nyx-base/tokenizer.json")
+          p=Path("training/data/russian_chat_prepared.jsonl")
+          rows=[]
+          for line in p.read_text(encoding="utf-8").splitlines():
+              r=json.loads(line)
+              if len(tok.encode(r["instruction"]).ids)<350 and len(tok.encode(r["output"]).ids)<350: rows.append(r)
+          p.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in rows),encoding="utf-8")
+          print("Context-safe records:",len(rows))
+          if len(rows)<300: raise SystemExit("Insufficient context-safe examples")
+          PY
+      - name: Continue SFT
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python training/finetune_instructions.py             --data training/data/russian_chat_prepared.jsonl             --tokenizer /tmp/nyx-base/tokenizer.json             --resume /tmp/nyx-base/sft_step_50.pt             --steps 300 --max-steps 250             --batch-size 2 --grad-accum-steps 2             --block-size 512 --lr 1e-5 --warmup-steps 20             --eval-every 25 --save-every 50             --reset-best-loss --allow-cpu --out artifacts/russian_sft_checkpoints
+      - name: Verify outputs
+        run: |
+          test -f artifacts/russian_sft_checkpoints/sft_step_300.pt
+          test -f artifacts/russian_sft_checkpoints/best_sft.pt
+          python - <<'PY'
+          import torch,json
+          from pathlib import Path
+          f=torch.load("artifacts/russian_sft_checkpoints/sft_step_300.pt",map_location="cpu",weights_only=False)
+          b=torch.load("artifacts/russian_sft_checkpoints/best_sft.pt",map_location="cpu",weights_only=False)
+          report={"dataset":"ZeroAgency/ru-instruct-conversation-v1","starting_checkpoint":"sft_step_50.pt","new_steps":250,"total_sft_updates":300,"base_steps":600,"prepared_examples":sum(1 for _ in open("training/data/russian_chat_prepared.jsonl",encoding="utf-8")),"best_validation_loss":float(b.get("best_validation_loss",float("nan"))),"checkpoint_step":int(f.get("step",-1))}
+          Path("artifacts/russian_sft_metrics.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NYXVAULT-Russian-SFT
+          path: |
+            artifacts/russian_sft_checkpoints/sft_step_300.pt
+            artifacts/russian_sft_checkpoints/best_sft.pt
+            artifacts/russian_sft_metrics.json
+            training/data/russian_chat_prepared.jsonl
+          if-no-files-found: error
+          retention-days: 90
