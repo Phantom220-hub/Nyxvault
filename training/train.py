@@ -79,6 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--precision", choices=("auto", "fp32", "fp16", "bf16"), default="auto")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--eval-interval", type=int, default=100)
+    parser.add_argument("--log-interval", type=int, default=10, help="print training progress every N optimizer steps")
+    parser.add_argument("--save-first-checkpoint", type=int, default=100, help="save a resumable checkpoint at this early milestone")
     parser.add_argument("--eval-batches", type=int, default=20)
     parser.add_argument("--save-every", type=int, default=500)
     parser.add_argument("--resume", default="")
@@ -122,8 +124,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--d-model, --n-heads and --n-layers must be positive")
     if args.d_model % args.n_heads != 0:
         parser.error("--d-model must be divisible by --n-heads")
-    if args.save_every < 1 or args.eval_interval < 1 or args.eval_batches < 1:
-        parser.error("--save-every, --eval-interval and --eval-batches must be positive")
+    if args.save_every < 1 or args.eval_interval < 1 or args.eval_batches < 1 or args.log_interval < 1:
+        parser.error("--save-every, --eval-interval, --eval-batches and --log-interval must be positive")
+    if args.save_first_checkpoint < 1:
+        parser.error("--save-first-checkpoint must be positive")
     if args.warmup_steps < 0 or args.warmup_steps >= args.steps:
         parser.error("--warmup-steps must be >= 0 and smaller than --steps")
     if args.lr <= 0 or args.weight_decay < 0 or args.grad_clip <= 0:
@@ -306,6 +310,15 @@ def main(argv: list[str] | None = None) -> None:
         scaler.step(optimizer)
         scaler.update()
 
+        # Report that an optimizer update completed before running the slower evaluation pass.
+        if (step + 1) % args.log_interval == 0 or step == start_step or step + 1 == args.steps:
+            print(
+                f"training step {step + 1}/{args.steps} "
+                f"micro_loss={accumulated_loss / args.grad_accum_steps:.4f} "
+                f"grad_norm={float(grad_norm):.4f}",
+                flush=True,
+            )
+
         if (step + 1) % args.eval_interval == 0 or step == start_step:
             train_loss, validation_loss = estimate_losses()
             validation_ppl = math.exp(min(validation_loss, 20.0))
@@ -339,7 +352,7 @@ def main(argv: list[str] | None = None) -> None:
                     output_dir / "best.pt",
                 )
 
-        if (step + 1) % args.save_every == 0 or step + 1 == args.steps:
+        if (step + 1) == args.save_first_checkpoint or (step + 1) % args.save_every == 0 or step + 1 == args.steps:
             checkpoint = {
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
