@@ -1,3 +1,5 @@
 Russian SFT retry: robust nested conversation parsing, Russian-language filter, JSONL newline fix. Continue from merged sft_step_50.pt to cumulative step 300.
 
 Retry after registering ru/dialogue/general-conversation in the SFT schema.
+
+Retry with schema-cleaned unique prompts, dataset preflight, and corrected zero-based checkpoint verification.
