@@ -2,7 +2,8 @@
 
 This directory is the canonical home for NYXVAULT training input datasets and dataset-related artifacts.
 
-- `programming_seed.jsonl`: small curated starter corpus (legacy Q/A and structured records).
+- `programming_seed.jsonl`: 103-record starter corpus (89 legacy Q&A and 14 structured records).
+- `code_projects_seed.jsonl`: 18 original structured coding tasks, including a tested calculator, Python algorithms, Godot 4 gameplay systems, Kotlin architecture and a JavaScript Canvas game.
 - `raw/`: collected, user-owned, or properly licensed source material before preparation.
 - `processed/`: train/validation text and preparation manifest.
 - `reports/`: dataset-validation reports.
