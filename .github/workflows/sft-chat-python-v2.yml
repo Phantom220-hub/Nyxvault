@@ -49,31 +49,66 @@ jobs:
           python -m pip install numpy tokenizers onnx onnxruntime onnxscript
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Validate expanded dataset and tokenizer
+      - name: Prepare and validate context-safe dataset and tokenizer
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
         run: |
           python - <<'PY'
-          import json
+          import json, re
           from pathlib import Path
           from tokenizers import Tokenizer
+          from training.data_schema import normalize_record, validate_record
           from training.finetune_instructions import make_samples
           tok=Tokenizer.from_file("/tmp/nyx-base/tokenizer.json")
           eos=tok.token_to_id("[EOS]")
           pad=tok.token_to_id("[PAD]")
           if eos is None or pad is None or eos==pad:
               raise SystemExit("EOS/PAD token IDs are missing or identical")
-          samples, valid, counts, _=make_samples(Path("training/data/chat_python_projects_v2.jsonl"),tok,512,2026)
-          print(json.dumps({
-            "records":sum(v["train"]+v["validation"] for v in counts.values()),
-            "train":len(samples),"validation":len(valid),"groups":counts,
+          source=Path("training/data/chat_python_projects_v2.jsonl")
+          prepared=[]
+          shortened=[]
+          skipped=[]
+          for line_no,line in enumerate(source.read_text(encoding="utf-8").splitlines(),1):
+              if not line.strip(): continue
+              row=normalize_record(json.loads(line))
+              issues=[x for x in validate_record(row) if x.severity=="error" or x.code=="W010"]
+              if issues:
+                  raise SystemExit(f"line {line_no}: "+"; ".join(x.message for x in issues))
+              answer=row["output"]
+              answer_tokens=len(tok.encode(answer).ids)+1
+              if answer_tokens>504:
+                  match=re.search(r"```"+re.escape(row["language"])+r"\s*([\s\S]*?)\n?```",answer)
+                  if not match:
+                      skipped.append({"id":row["id"],"reason":f"long answer ({answer_tokens} tokens), no code block"})
+                      continue
+                  code=match.group(1).strip()
+                  candidate=f"Полный пример кода:\n```{row['language']}\n{code}\n```"
+                  candidate_tokens=len(tok.encode(candidate).ids)+1
+                  if candidate_tokens>504:
+                      skipped.append({"id":row["id"],"reason":f"code-only answer still too long ({candidate_tokens} tokens)"})
+                      continue
+                  row=dict(row)
+                  row["output"]=candidate
+                  answer_tokens=candidate_tokens
+                  shortened.append(row["id"])
+              prepared.append(row)
+          out=Path("/tmp/nyxvault-sft-v2-prepared.jsonl")
+          out.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in prepared),encoding="utf-8")
+          train,valid,counts,_=make_samples(out,tok,512,2026)
+          report={
+            "source_records":sum(1 for line in source.read_text(encoding="utf-8").splitlines() if line.strip()),
+            "prepared_records":len(prepared),
+            "train":len(train),"validation":len(valid),"groups":counts,
+            "shortened_to_code_only":shortened,"skipped":skipped,
             "eos_id":eos,"pad_id":pad,
             "roundtrip":{s:tok.decode(tok.encode(s).ids) for s in ["Привет","Что такое токенизатор?","Сделай простой калькулятор на Python"]}
-          },ensure_ascii=False,indent=2))
+          }
           for s in ["Привет","Что такое токенизатор?","Сделай простой калькулятор на Python"]:
               if tok.decode(tok.encode(s).ids)!=s:
                   raise SystemExit("Tokenizer round-trip failed: "+s)
+          Path("/tmp/sft-v2-preparation-report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
 
       - name: Continue SFT from sft_step_50 for 300 optimizer updates
@@ -82,7 +117,7 @@ jobs:
           MKL_NUM_THREADS: "2"
         run: |
           python training/finetune_instructions.py \
-            --data training/data/chat_python_projects_v2.jsonl \
+            --data /tmp/nyxvault-sft-v2-prepared.jsonl \
             --tokenizer /tmp/nyx-base/tokenizer.json \
             --resume /tmp/nyx-base/sft_step_50.pt \
             --steps 350 --max-steps 300 \
@@ -114,13 +149,15 @@ jobs:
             "new_sft_updates":300,
             "total_sft_updates":350,
             "cumulative_updates":950,
-            "training_records":sum(1 for _ in open("training/data/chat_python_projects_v2.jsonl",encoding="utf-8")),
+            "training_records":sum(1 for line in open("/tmp/nyxvault-sft-v2-prepared.jsonl",encoding="utf-8") if line.strip()),
             "changed_parameter_tensors":int(changed),
             "best_validation_loss":float(best.get("best_validation_loss",float("nan"))),
             "final_validation_loss":float(final.get("best_validation_loss",float("nan"))),
             "dynamic_padding":True,
             "note":"Experimental small model; outputs are evaluated separately and are not guaranteed to be reliable."
           }
+          Path("artifacts/chat_python_projects_v2_prepared.jsonl").write_text(Path("/tmp/nyxvault-sft-v2-prepared.jsonl").read_text(encoding="utf-8"),encoding="utf-8")
+          Path("artifacts/sft_v2_preparation_report.json").write_text(Path("/tmp/sft-v2-preparation-report.json").read_text(encoding="utf-8"),encoding="utf-8")
           Path("artifacts/sft_metrics_v2.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
@@ -188,6 +225,8 @@ jobs:
             artifacts/tokenizer_mobile.json
             artifacts/inference_v2.json
             training/data/chat_python_projects_v2.jsonl
+            artifacts/chat_python_projects_v2_prepared.jsonl
+            artifacts/sft_v2_preparation_report.json
           if-no-files-found: error
           retention-days: 90
 
