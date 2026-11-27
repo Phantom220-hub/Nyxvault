@@ -10,7 +10,7 @@ All active training components are maintained in this directory and the parent r
 - `prepare_data.py`: prepares train/validation text from the canonical JSONL and raw-data folders.
 - `evaluate.py`: validation metrics and fixed prompt smoke checks.
 - `export_mobile.py`: exports the trained model for the Android runtime.
-- `nyxvault_train.ipynb`: Colab/Kaggle base-training workflow.
+- `nyxvault_train.ipynb`: Colab/Kaggle base-training workflow. In Colab it mounts Google Drive, restores the latest full checkpoint and exact processed corpus/tokenizer, then saves the updated `nyxvault-output` folder after every 100-step stage.
 
 ## Instruction tuning
 
