@@ -36,10 +36,7 @@ class NyxvaultBrain : Closeable {
 
         val model = transformer
         if (model != null) {
-            val prompt = buildString {
-                if (conversationContext.isNotBlank()) append(conversationContext.takeLast(1200)).append("\n")
-                append("Вопрос: ").append(question).append("\nОтвет:")
-            }
+            val prompt = ProgrammingPrompt.build(question, conversationContext)
             val generated = try { model.generate(prompt).trim() } catch (_: Exception) { "" }
             if (generated.isNotBlank()) {
                 return "ЭКСПЕРИМЕНТАЛЬНЫЙ ОТВЕТ NYXVAULT\n$generated\n\n" +
