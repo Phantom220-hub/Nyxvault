@@ -2,6 +2,10 @@ name: NYXVAULT real model inference test
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/model-inference-test.yml"
 
 permissions:
   contents: read
