@@ -51,6 +51,15 @@ jobs:
                       shutil.copyfileobj(src, dst)
                   print(f"Extracted {member} -> {output / name}")
           archive.unlink()
+          import urllib.request
+          release = "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-godot-pilot-2026-11-27/"
+          resume_path = output / "sft_step_25.pt"
+          urllib.request.urlretrieve(release + "sft_step_25.pt", resume_path)
+          Path("artifacts/sft_checkpoints").mkdir(parents=True, exist_ok=True)
+          urllib.request.urlretrieve(release + "best_sft.pt", Path("artifacts/sft_checkpoints/best_sft.pt"))
+          if resume_path.stat().st_size < 1_000_000:
+              raise SystemExit("Previous SFT checkpoint download is incomplete.")
+          print("Downloaded previous SFT checkpoint and best weights.")
           PY
 
       - name: Install CPU training dependencies
