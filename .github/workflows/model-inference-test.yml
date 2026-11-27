@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - "training/RUSSIAN_SFT_START.txt"
       - "training/data/*.jsonl"
   workflow_dispatch:
 
