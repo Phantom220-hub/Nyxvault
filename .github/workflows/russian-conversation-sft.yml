@@ -77,7 +77,8 @@ jobs:
               return cyrillic / len(letters) >= 0.15
 
           out=[]
-          seen=set()
+          seen_pairs=set()
+          seen_instructions=set()
           role_alias={"user":"user","human":"user","assistant":"assistant","gpt":"assistant","bot":"assistant"}
           type_counts={}
           for raw_conv in df["conversation"].tolist():
@@ -104,10 +105,12 @@ jobs:
                           continue
                       if not is_russian(q+" "+a):
                           continue
-                      key=(q,a)
-                      if key in seen:
+                      pair_key=(q,a)
+                      task_key=q
+                      if pair_key in seen_pairs or task_key in seen_instructions:
                           continue
-                      seen.add(key)
+                      seen_pairs.add(pair_key)
+                      seen_instructions.add(task_key)
                       out.append({
                           "id":f"ruconv_{len(out)+1:06d}",
                           "level":1,
@@ -148,6 +151,30 @@ jobs:
           if len(rows)<300:
               raise SystemExit("Insufficient context-safe Russian examples.")
           PY
+      - name: Preflight SFT dataset validation
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tokenizers import Tokenizer
+          from training.finetune_instructions import make_samples
+
+          tokenizer = Tokenizer.from_file("/tmp/nyx-base/tokenizer.json")
+          train, valid, counts, _pad_id = make_samples(
+              Path("training/data/russian_chat_prepared.jsonl"),
+              tokenizer,
+              block_size=512,
+              seed=2026,
+          )
+          print("Preflight passed")
+          print("Train samples:", len(train))
+          print("Validation samples:", len(valid))
+          print("Categories:", counts)
+          if len(train) < 200 or len(valid) < 50:
+              raise SystemExit("Too few samples after SFT validation.")
+          PY
       - name: Continue SFT
         env:
           OMP_NUM_THREADS: "2"
@@ -179,7 +206,8 @@ jobs:
               "base_steps":600,
               "prepared_examples":sum(1 for _ in open("training/data/russian_chat_prepared.jsonl",encoding="utf-8")),
               "best_validation_loss":float(b.get("best_validation_loss",float("nan"))),
-              "checkpoint_step":int(f.get("step",-1))
+              # The trainer stores a zero-based step index inside checkpoints.
+              "checkpoint_step":int(f.get("step",-1))+1
           }
           Path("artifacts/russian_sft_metrics.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
           print(json.dumps(report,ensure_ascii=False,indent=2))
