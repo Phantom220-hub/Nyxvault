@@ -28,7 +28,7 @@ GitHub Actions runs Kotlin tests and builds the debug APK.
 
 ## Train the one Transformer
 
-Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/programming-brain/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook uses the programming-brain branch, prepares the corpus, trains the tokenizer, runs a short CPU integration check against the prepared text, and then trains the full Transformer, evaluates it, and exports:
+Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook uses the main branch, prepares the corpus, trains the tokenizer, runs a short CPU integration check against the prepared text, and then trains the full Transformer, evaluates it, and exports:
 - `nyxvault.onnx`
 - `tokenizer_mobile.json`
 
