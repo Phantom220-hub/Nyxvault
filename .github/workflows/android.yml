@@ -1,29 +1,91 @@
 name: NYXVAULT Android APK
+
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android.yml"
+      - "app/**"
+      - "training/export_mobile.py"
+      - "training/model.py"
+      - "training/requirements.txt"
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: training/requirements.txt
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
+      - name: Download the latest NYXVAULT checkpoint and matching tokenizer
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nyxvault-base /tmp/nyxvault-model
+          curl -fL --retry 3 \
+            "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" \
+            -o /tmp/nyxvault-base.zip
+          unzip -q /tmp/nyxvault-base.zip -d /tmp/nyxvault-base
+          TOKENIZER="$(find /tmp/nyxvault-base -type f -path '*/artifacts/tokenizer.json' -print -quit)"
+          if [ -z "$TOKENIZER" ]; then
+            TOKENIZER="$(find /tmp/nyxvault-base -type f -name tokenizer.json -print -quit)"
+          fi
+          test -n "$TOKENIZER"
+          curl -fL --retry 3 \
+            "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" \
+            -o /tmp/nyxvault-model/sft_step_50.pt
+          echo "TOKENIZER_PATH=$TOKENIZER" >> "$GITHUB_ENV"
+
+      - name: Export the trained checkpoint for Android
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r training/requirements.txt
+          mkdir -p app/src/main/assets/nyxvault_model
+          cd training
+          python export_mobile.py \
+            --checkpoint /tmp/nyxvault-model/sft_step_50.pt \
+            --tokenizer "$TOKENIZER_PATH" \
+            --out ../app/src/main/assets/nyxvault_model/nyxvault.onnx \
+            --quantize
+          cd ..
+          mv app/src/main/assets/nyxvault_model/nyxvault_int8.onnx \
+             app/src/main/assets/nyxvault_model/nyxvault.onnx
+          test -s app/src/main/assets/nyxvault_model/nyxvault.onnx
+          test -s app/src/main/assets/nyxvault_model/tokenizer_mobile.json
+          ls -lh app/src/main/assets/nyxvault_model/
+
       - name: Run Kotlin unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
-      - name: Build debug APK
+
+      - name: Build APK with trained NYXVAULT model bundled
         run: gradle --no-daemon :app:assembleDebug
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NYXVAULT-Android-APK
+          name: NYXVAULT-Android-650-updates
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
