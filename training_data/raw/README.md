@@ -1,34 +1,10 @@
-# NYXVAULT raw training data
+# NYXVAULT raw training data folder
 
-Upload new programming-training datasets into this folder.
+This folder is for temporary incoming uploads only.
 
-## Expected file
+The canonical structured project dataset is:
+`training/data/code_projects_seed.jsonl`
 
-Use a UTF-8 JSONL file, for example:
+New programming/game examples are validated against `training/data_schema.py` and `training/curriculum.py`, then merged into that canonical file. Do not train directly from temporary/raw uploads.
 
-`nyxvault_game_training.jsonl`
-
-Each line must be one complete JSON object. Do not wrap the file in Markdown fences and do not add comments between records.
-
-## Required fields
-
-Each record must follow `training/data_schema.py`:
-
-- `id`: unique lowercase ID
-- `level`: integer from 1 to 8
-- `language`: supported language, e.g. `python`, `gdscript`, `javascript`
-- `topic`: exact topic slug from `training/curriculum.py` for that level
-- `type`: one of `explain`, `write_code`, `complete`, `debug`, `review`, `refactor`, `design`, `analyze`
-- `instruction`: task description
-- `output`: reference answer; put code inside fenced code blocks in the JSON string
-- `license`: use `original` for newly written examples
-
-Some task types also require `input`. Optional fields include `tests`, `tags`, and `source`.
-
-## Important
-
-The data preparation script scans this folder automatically:
-
-`python training/prepare_data.py`
-
-It validates structured JSONL records, removes duplicates, and writes the prepared train/validation files. Uploading a dataset does not itself train the model or change its weights.
+The November 27, 2026 Claude source file used older field names (`task`, `code`, `difficulty`) and did not match the NYXVAULT schema. It was converted, validated, and merged into the canonical project dataset. The source and converted copies are retained in Git history; the active copy is in `training/data/code_projects_seed.jsonl`.
