@@ -38,7 +38,7 @@ The binary archive is intentionally a single Git LFS object rather than many vis
 
 The only active model-training workflow is `.github/workflows/model-inference-test.yml`. It reads `NYXVAULT_MODEL.zip` from `main`, resumes from its `model.pt` **including optimizer state**, adds validated JSONL data from `training/data/`, runs another SFT stage, exports and checks Android ONNX inference, then replaces the same archive in `main`.
 
-Add new training records under `training/data/*.jsonl`, or manually dispatch the canonical workflow. The file `training/RUSSIAN_SFT_START.txt` is the manual push trigger. There are no active separate chat, Python, Godot or Russian SFT workflows.
+Add new training records under `training/data/*.jsonl` or manually dispatch the canonical workflow from GitHub Actions. There are no active separate chat, Python, Godot or Russian SFT workflows.
 
 ## Programming dataset format and checks
 
