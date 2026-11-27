@@ -100,15 +100,24 @@ def _rng_state() -> Dict[str, Any]:
     return state
 
 
+def _rng_byte_tensor(value: Any) -> torch.Tensor:
+    """Normalize serialized RNG state for PyTorch versions requiring CPU uint8 tensors."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().to(device="cpu", dtype=torch.uint8).contiguous()
+    return torch.as_tensor(value, dtype=torch.uint8, device="cpu").contiguous()
+
+
 def _restore_rng_state(state: Dict[str, Any]) -> None:
     if "python" in state:
         random.setstate(state["python"])
     if "numpy" in state:
         np.random.set_state(state["numpy"])
     if "torch_cpu" in state:
-        torch.set_rng_state(state["torch_cpu"])
+        torch.set_rng_state(_rng_byte_tensor(state["torch_cpu"]))
     if torch.cuda.is_available() and "torch_cuda" in state:
-        torch.cuda.set_rng_state_all(state["torch_cuda"])
+        torch.cuda.set_rng_state_all(
+            [_rng_byte_tensor(item) for item in state["torch_cuda"]]
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -244,7 +253,7 @@ def main(argv: list[str] | None = None) -> None:
         if "rng_state" in checkpoint:
             _restore_rng_state(checkpoint["rng_state"])
         if "batch_rng_state" in checkpoint:
-            train_generator.set_state(checkpoint["batch_rng_state"])
+            train_generator.set_state(_rng_byte_tensor(checkpoint["batch_rng_state"]))
         if start_step >= args.steps:
             raise SystemExit(
                 f"Checkpoint is already at step {start_step}; set --steps to a larger total."
