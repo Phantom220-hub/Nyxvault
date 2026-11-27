@@ -58,7 +58,7 @@ jobs:
           model_path = "/tmp/nyx-mobile/nyxvault.onnx"
           tokenizer = Tokenizer.from_file("/tmp/nyx-mobile/tokenizer.json")
           session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-          prompt = "Вопрос: Объясни простыми словами, почему небо голубое. Приведи пример из жизни. Ответ:"
+          prompt = "Привет"
           ids = tokenizer.encode(prompt).ids
           if not ids:
               raise RuntimeError("Tokenizer produced no input tokens")
@@ -71,7 +71,7 @@ jobs:
                   break
               ids.append(next_id)
               generated.append(next_id)
-          answer = tokenizer.decode(generated, skip_special_tokens=True)
+          answer = tokenizer.decode(generated, skip_special_tokens=False)
           print("\n===== NYXVAULT REAL ONNX INFERENCE =====")
           print("Prompt:", prompt)
           print("Generated tokens:", len(generated))
