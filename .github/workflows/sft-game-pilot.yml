@@ -145,7 +145,7 @@ jobs:
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
 
-      - name: Run 25 CPU SFT optimizer steps
+      - name: Continue merged SFT checkpoint for 25 CPU optimizer steps
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
@@ -153,8 +153,8 @@ jobs:
           python training/finetune_instructions.py \
             --data /tmp/nyxvault-sft-game.jsonl \
             --tokenizer /tmp/nyxvault-base/tokenizer.json \
-            --init-from /tmp/nyxvault-base/step_600.pt \
-            --steps 25 --max-steps 25 \
+            --resume /tmp/nyxvault-base/sft_step_25.pt \
+            --steps 50 --max-steps 25 \
             --batch-size 1 --grad-accum-steps 1 \
             --block-size 512 --lr 2e-5 --warmup-steps 2 \
             --eval-every 5 --save-every 25 \
@@ -165,14 +165,14 @@ jobs:
           python - <<'PY'
           import json, torch
           from pathlib import Path
-          base = torch.load("/tmp/nyxvault-base/step_600.pt", map_location="cpu", weights_only=False)
-          tuned_path = Path("artifacts/sft_checkpoints/sft_step_25.pt")
+          previous = torch.load("/tmp/nyxvault-base/sft_step_25.pt", map_location="cpu", weights_only=False)
+          tuned_path = Path("artifacts/sft_checkpoints/sft_step_50.pt")
           best_path = Path("artifacts/sft_checkpoints/best_sft.pt")
           if not tuned_path.is_file() or not best_path.is_file():
               raise SystemExit("Expected SFT checkpoint files are missing.")
           tuned = torch.load(tuned_path, map_location="cpu", weights_only=False)
           changed, max_delta = 0, 0.0
-          for name, old in base["model"].items():
+          for name, old in previous["model"].items():
               delta = (tuned["model"][name].float() - old.float()).abs().max().item()
               if delta > 0:
                   changed += 1
@@ -182,6 +182,10 @@ jobs:
           report = json.loads(Path("/tmp/sft-preparation-report.json").read_text(encoding="utf-8"))
           report.update({
               "sft_steps_completed": int(tuned["step"]) + 1,
+              "sft_steps_added_this_run": 25,
+              "pretraining_steps": 600,
+              "cumulative_optimizer_updates_across_phases": 650,
+              "continued_from_checkpoint": "sft_step_25.pt",
               "changed_parameter_tensors": changed,
               "max_absolute_parameter_delta": max_delta,
               "best_validation_loss": float(tuned.get("best_validation_loss", float("nan")))
@@ -207,7 +211,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            artifacts/sft_checkpoints/sft_step_25.pt
+            artifacts/sft_checkpoints/sft_step_50.pt
             artifacts/sft_checkpoints/best_sft.pt
             artifacts/sft_metrics.json
             artifacts/sft_game_training_data.jsonl
