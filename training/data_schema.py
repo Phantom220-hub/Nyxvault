@@ -5,7 +5,7 @@
 
     id*          уникальный идентификатор: строчные латинские буквы, цифры, _ . -  (3..64 символа)
     level*       целое число, уровень учебной программы (см. curriculum.py)
-    language*    язык программирования из LANGUAGES
+    language*    язык программирования или русский язык из LANGUAGES
     topic*       тема из curriculum.py, принадлежащая указанному уровню
     type*        вид задачи из RECORD_TYPES
     instruction* текст задания
@@ -39,12 +39,13 @@ except ImportError:  # запуск как пакет: python -m training.valida
 SCHEMA_VERSION = 1
 
 LANGUAGES: Tuple[str, ...] = (
-    "python", "javascript", "typescript", "java", "kotlin", "c", "cpp", "csharp",
+    "python", "ru", "javascript", "typescript", "java", "kotlin", "c", "cpp", "csharp",
     "go", "rust", "sql", "bash", "html", "css", "json", "gdscript",
 )
 
 RECORD_TYPES: Tuple[str, ...] = (
     "explain",      # объяснить понятие или код
+    "dialogue",     # обычный диалог пользователя и ассистента
     "write_code",   # написать код по заданию
     "complete",     # дописать код (input содержит начало)
     "debug",        # найти и исправить ошибку (input содержит код с ошибкой)
