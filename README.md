@@ -37,7 +37,7 @@ The model is not bundled into the APK because trained weights are produced by th
 
 ## Programming dataset format and checks
 
-New programming examples use the structured JSONL schema in `training/data_schema.py`. Each record includes an ID, curriculum level, language, topic, task type, instruction, expected solution, and license. Optional Python tests can be stored in the `tests` field. The eight-level curriculum is defined in `training/curriculum.py`.
+New programming examples use the structured JSONL schema in `training/data_schema.py`. Each record includes an ID, curriculum level, language, topic, task type, instruction, expected solution, and license. Optional Python tests can be stored in the `tests` field. The eight-level curriculum is defined in `training/curriculum.py`. The additional `training/data/code_projects_seed.jsonl` contains original examples for complete code tasks, Godot 4 game mechanics, a browser game and project structure.
 
 The data preparation script supports both this new schema and the existing legacy `question` / `answer` records. It preserves source-code indentation and URLs while normalizing line endings:
 
@@ -49,6 +49,7 @@ Validate the programming corpus and run its automated checks:
 
 ```bash
 python training/validate_data.py training/data/programming_seed.jsonl
+python training/validate_data.py training/data/code_projects_seed.jsonl --exec-tests
 python training/validate_data.py training/data/raw --exec-tests
 python -m unittest discover -s training/tests -v
 ```
@@ -74,4 +75,4 @@ Before committing to a long training run, the notebook now runs a short end-to-e
 python training/pipeline_smoke_test.py --data training/data/processed --tokenizer artifacts/tokenizer.json --steps 3 --block-size 32
 ```
 
-This invokes the actual `training/train.py` script with a small model, checks finite train/validation loss, writes a checkpoint, and resumes from that checkpoint. It verifies training-pipeline mechanics only; it does not measure coding ability. The normal model defaults remain 256 dimensions, 8 attention heads, and 6 layers.
+This invokes the actual `training/train.py` script with a small model, checks finite train/validation loss, writes a checkpoint, and resumes from that checkpoint. It verifies training-pipeline mechanics only; it does not measure coding ability. The normal model defaults are 256 dimensions, 8 attention heads, 6 layers and a 512-token context.
