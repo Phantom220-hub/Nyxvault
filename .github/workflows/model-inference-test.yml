@@ -1,22 +1,26 @@
-name: NYXVAULT unified model consolidation
+name: NYXVAULT single-model continuous training
 
 on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/model-inference-test.yml"
+      - "training/RUSSIAN_SFT_START.txt"
+      - "training/data/*.jsonl"
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: read
+
+concurrency:
+  group: nyxvault-single-model-main
+  cancel-in-progress: false
 
 jobs:
-  consolidate:
+  continue-canonical-model:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
-      - name: Checkout main
+      - name: Checkout main and fetch the canonical LFS model bundle
         uses: actions/checkout@v4
         with:
           lfs: true
@@ -27,269 +31,178 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Download every successful SFT lineage and the base backup
+      - name: Unpack the one canonical model and verify its manifest
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/nyx-source /tmp/nyx-russian /tmp/nyx-package
-          ROOT="https://github.com/Phantom220-hub/Nyxvault/releases/download"
-          curl -fL --retry 4 "$ROOT/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/nyx-base-all.zip
-          curl -fL --retry 4 "$ROOT/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" -o /tmp/nyx-source/sft_step_50.pt
-          curl -fL --retry 4 "$ROOT/nyxvault-sft-chat-basics-2026-11-27/sft_step_100.pt" -o /tmp/nyx-source/sft_step_100.pt
-          curl -fL --retry 4 "$ROOT/nyxvault-sft-chat-python-v2-2026-11-27/sft_step_350.pt" -o /tmp/nyx-source/sft_step_350.pt
-          curl -fL --retry 4 "$ROOT/nyxvault-sft-merged-projects-2026-11-27/sft_game_training_data.jsonl" -o /tmp/nyx-source/game_training_data.jsonl
+          test -s NYXVAULT_MODEL.zip
+          mkdir -p /tmp/nyx-current /tmp/nyx-next
           python - <<'PY'
-          from pathlib import Path
           from zipfile import ZipFile
-          import shutil
-          zpath=Path("/tmp/nyx-base-all.zip")
-          with ZipFile(zpath) as z:
-              names=z.namelist()
-              base=[n for n in names if Path(n).name=="step_600.pt"]
-              toks=[n for n in names if Path(n).name=="tokenizer.json"]
-              if len(base)!=1 or len(toks)!=1:
-                  raise SystemExit(f"Expected one step_600.pt and tokenizer.json; got {base}, {toks}")
-              for member,target in ((base[0],"/tmp/nyx-source/base_step_600.pt"),(toks[0],"/tmp/nyx-source/tokenizer.json")):
-                  with z.open(member) as src, open(target,"wb") as dst:
-                      shutil.copyfileobj(src,dst)
-          print("Extracted immutable step_600 backup and tokenizer.")
+          from pathlib import Path
+          import json, shutil
+          archive=Path("NYXVAULT_MODEL.zip")
+          with ZipFile(archive) as z:
+              bad=z.testzip()
+              if bad: raise SystemExit("Canonical model ZIP is corrupt: "+bad)
+              required={"model.pt","tokenizer.json","base_step_600_backup.pt","training_corpus.jsonl","manifest.json"}
+              names=set(z.namelist())
+              missing=required-names
+              if missing: raise SystemExit(f"Canonical model missing members: {sorted(missing)}")
+              for name in required | {"model.onnx","tokenizer_mobile.json","inference_test.json"}:
+                  if name in names:
+                      z.extract(name,"/tmp/nyx-current")
+          manifest=json.loads(Path("/tmp/nyx-current/manifest.json").read_text(encoding="utf-8"))
+          if manifest.get("canonical_checkpoint")!="model.pt":
+              raise SystemExit("Unexpected canonical checkpoint in manifest")
+          if not Path("/tmp/nyx-current/model.pt").is_file():
+              raise SystemExit("Canonical model.pt was not extracted")
+          print("Loaded canonical model:",manifest.get("name"),"checkpoint:",manifest.get("checkpoint_internal_step"))
           PY
-          rm -f /tmp/nyx-base-all.zip
-          test -s /tmp/nyx-source/base_step_600.pt
-          test -s /tmp/nyx-source/tokenizer.json
-          test -s /tmp/nyx-source/sft_step_50.pt
-          test -s /tmp/nyx-source/sft_step_100.pt
-          test -s /tmp/nyx-source/sft_step_350.pt
 
-      - name: Retrieve the completed Russian SFT checkpoint and dataset
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh run download 46042279176 --repo Phantom220-hub/Nyxvault --name NYXVAULT-Russian-SFT --dir /tmp/nyx-russian
-          RUSSIAN_CKPT="$(find /tmp/nyx-russian -type f -name sft_step_300.pt -print -quit)"
-          RUSSIAN_DATA="$(find /tmp/nyx-russian -type f -name russian_chat_prepared.jsonl -print -quit)"
-          RUSSIAN_METRICS="$(find /tmp/nyx-russian -type f -name russian_sft_metrics.json -print -quit)"
-          test -n "$RUSSIAN_CKPT" && test -n "$RUSSIAN_DATA" && test -n "$RUSSIAN_METRICS"
-          cp "$RUSSIAN_CKPT" /tmp/nyx-source/sft_step_300_russian.pt
-          cp "$RUSSIAN_DATA" /tmp/nyx-source/russian_chat_prepared.jsonl
-          cp "$RUSSIAN_METRICS" /tmp/nyx-source/russian_sft_metrics.json
-          test -s /tmp/nyx-source/sft_step_300_russian.pt
-          test -s /tmp/nyx-source/russian_chat_prepared.jsonl
-
-      - name: Install model training and export dependencies
+      - name: Install CPU training and ONNX export dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install numpy tokenizers onnx onnxruntime onnxscript
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Verify shared ancestry, merge all separate weight branches and build one corpus
+      - name: Extend the canonical corpus with new main-branch data
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
         run: |
           python - <<'PY'
-          import hashlib, json, re
+          import hashlib, json
           from collections import Counter
           from pathlib import Path
-          import torch
           from tokenizers import Tokenizer
           from training.data_schema import normalize_record, validate_record
-
-          root=Path("/tmp/nyx-source")
-          base=torch.load(root/"sft_step_50.pt",map_location="cpu",weights_only=False)
-          sources={
-              "chat_basics":torch.load(root/"sft_step_100.pt",map_location="cpu",weights_only=False),
-              "chat_python_v2":torch.load(root/"sft_step_350.pt",map_location="cpu",weights_only=False),
-              "russian_conversation":torch.load(root/"sft_step_300_russian.pt",map_location="cpu",weights_only=False),
-          }
-          expected_steps={"chat_basics":100,"chat_python_v2":350,"russian_conversation":300}
-          for name,ckpt in sources.items():
-              if ckpt.get("config")!=base.get("config") or ckpt.get("vocab_size")!=base.get("vocab_size"):
-                  raise SystemExit(f"{name}: incompatible model config/vocabulary")
-              if set(ckpt["model"])!=set(base["model"]):
-                  raise SystemExit(f"{name}: state-dict parameter names differ")
-              if int(ckpt.get("step",-1))+1!=expected_steps[name]:
-                  raise SystemExit(f"{name}: unexpected checkpoint step {ckpt.get('step')}")
-              for key in base["model"]:
-                  if ckpt["model"][key].shape!=base["model"][key].shape:
-                      raise SystemExit(f"{name}: tensor shape mismatch at {key}")
-
-          metrics=json.loads((root/"russian_sft_metrics.json").read_text(encoding="utf-8"))
-          if metrics.get("starting_checkpoint")!="sft_step_50.pt" or metrics.get("checkpoint_step")!=300:
-              raise SystemExit(f"Russian lineage mismatch: {metrics}")
-
-          # The three branches share sft_step_50.pt as their exact parent.
-          # Merge their task vectors by averaging the deltas from that common parent.
-          merged={}
-          delta_norms={}
-          for key,reference in base["model"].items():
-              if torch.is_floating_point(reference):
-                  ref=reference.detach().float()
-                  deltas=[(sources[name]["model"][key].detach().float()-ref) for name in sources]
-                  value=ref+sum(deltas)/len(deltas)
-                  if not torch.isfinite(value).all():
-                      raise SystemExit(f"Non-finite merged tensor: {key}")
-                  merged[key]=value.to(dtype=reference.dtype)
-                  delta_norms[key]=[float(torch.linalg.vector_norm(d).item()) for d in deltas]
-              else:
-                  merged[key]=reference.detach().clone()
-          merged_path=Path("/tmp/nyx-source/merged_initial.pt")
-          torch.save({
-              "model":merged,
-              "config":base["config"],
-              "vocab_size":int(base["vocab_size"]),
-              "step":-1,
-              "phase":"merged_sft_task_vectors",
-              "base_checkpoint":"shared sft_step_50.pt",
-              "merge_sources":["sft_step_100.pt","sft_step_350.pt","sft_step_300.pt"],
-              "merge_method":"equal-weight average of task deltas from the shared sft_step_50 parent",
-          },merged_path)
-          del merged,base,sources
-          print("Merged three separately trained branches into one compatible state dict.")
-
-          tok=Tokenizer.from_file(str(root/"tokenizer.json"))
-          sources_data=[
-              ("programming","training/data/programming_seed.jsonl","programming"),
-              ("projects","training/data/code_projects_seed.jsonl","projects"),
-              ("chat","training/data/chat_and_python_basics.jsonl","chat"),
-              ("projects","training/data/chat_python_projects_v2.jsonl","projects"),
-              ("projects",str(root/"game_training_data.jsonl"),"game"),
-              ("russian",str(root/"russian_chat_prepared.jsonl"),"russian"),
-          ]
+          tok=Tokenizer.from_file("/tmp/nyx-current/tokenizer.json")
+          prior=Path("/tmp/nyx-current/training_corpus.jsonl")
           seen_tasks=set()
           seen_ids=set()
-          prepared=[]
-          counts=Counter()
+          rows=[]
           rejected=Counter()
-          for category,path,label in sources_data:
-              p=Path(path)
-              if not p.is_file():
-                  raise SystemExit(f"Missing training source: {p}")
-              for line_no,line in enumerate(p.read_text(encoding="utf-8").splitlines(),1):
+          def add_file(path, label, existing=False):
+              for line_no,line in enumerate(path.read_text(encoding="utf-8").splitlines(),1):
                   if not line.strip(): continue
                   try:
                       rec=normalize_record(json.loads(line))
-                      if not isinstance(rec,dict): raise ValueError("record is not an object")
+                      if not isinstance(rec,dict): raise ValueError("not an object")
                       issues=[x for x in validate_record(rec) if x.severity=="error" or x.code=="W010"]
                       if issues: raise ValueError("; ".join(x.message for x in issues[:2]))
-                      instruction=rec["instruction"]
-                      input_text=rec.get("input","")
-                      task=(instruction,input_text)
+                      task=(rec["instruction"],rec.get("input",""))
                       if task in seen_tasks:
                           rejected[label+"_duplicate"]+=1
                           continue
                       if len(tok.encode(rec["output"]).ids)+1>504:
-                          rejected[label+"_too_long"]+=1
+                          rejected[label+"_answer_too_long"]+=1
                           continue
                       old_id=str(rec["id"])
-                      new_id=f"{label}_{old_id}"
-                      if len(new_id)>64 or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,63}",new_id):
-                          new_id=f"{label}_{hashlib.sha1(old_id.encode()).hexdigest()[:20]}"
+                      new_id="u_"+hashlib.sha256((label+"\0"+old_id+"\0"+rec["instruction"]).encode()).hexdigest()[:24]
                       if new_id in seen_ids:
                           rejected[label+"_duplicate_id"]+=1
                           continue
                       rec["id"]=new_id
-                      rec["tags"]=[f"merge_{category}"]
-                      rec["source"]=f"NYXVAULT unified corpus: {label}; original={rec.get('source','')}"
-                      seen_tasks.add(task); seen_ids.add(new_id)
-                      prepared.append(rec); counts[label]+=1
+                      rec["tags"]=["nyxvault_unified"]
+                      rec["source"]=f"canonical corpus / {label}; original={rec.get('source','')}"
+                      rows.append(rec)
+                      seen_tasks.add(task)
+                      seen_ids.add(new_id)
                   except Exception as exc:
                       rejected[label+"_invalid"]+=1
                       if rejected[label+"_invalid"]<=3:
                           print(f"Skipped {label} line {line_no}: {exc}")
-          category_counts=Counter((r["tags"] or [""])[0] for r in prepared)
-          if any(n<2 for n in category_counts.values()):
-              for r in prepared:
-                  if category_counts[r["tags"][0]]<2:
-                      r["tags"]=["merge_projects"]
-              category_counts=Counter((r["tags"] or [""])[0] for r in prepared)
-          if any(n<2 for n in category_counts.values()):
-              raise SystemExit(f"Dataset categories need at least two records: {category_counts}")
-          out=Path("/tmp/nyx-source/unified_training_corpus.jsonl")
-          out.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in prepared),encoding="utf-8")
-          if len(prepared)<500:
-              raise SystemExit(f"Unified corpus too small: {len(prepared)} examples")
+          add_file(prior,"previous_canonical_corpus",True)
+          for path in sorted(Path("training/data").glob("*.jsonl")):
+              add_file(path,path.name)
+          if len(rows)<500:
+              raise SystemExit(f"Unified corpus unexpectedly small: {len(rows)}")
+          out=Path("/tmp/nyx-next/training_corpus.jsonl")
+          out.parent.mkdir(parents=True,exist_ok=True)
+          out.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in rows),encoding="utf-8")
           report={
-              "total_records":len(prepared),
-              "by_source":dict(counts),
-              "by_category":dict(category_counts),
+              "total_records":len(rows),
+              "unique_tasks":len(seen_tasks),
               "rejected":dict(rejected),
-              "sources":[p for _,p,_ in sources_data],
-              "unique_task_count":len(seen_tasks),
-              "tokenizer_vocab_size":tok.get_vocab_size(),
+              "training_sources":["previous canonical bundle","training/data/*.jsonl on main"],
+              "tokenizer_vocab_size":tok.get_vocab_size()
           }
-          Path("/tmp/nyx-source/corpus_report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          Path("/tmp/nyx-next/corpus_report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
 
-      - name: Validate merged checkpoint and combined dataset before training
+      - name: Validate canonical checkpoint, tokenizer and full corpus
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
         run: |
           python - <<'PY'
-          from pathlib import Path
           import json, torch
+          from pathlib import Path
           from tokenizers import Tokenizer
           from training.finetune_instructions import make_samples
-          tokenizer=Tokenizer.from_file("/tmp/nyx-source/tokenizer.json")
-          train,valid,groups,_=make_samples(Path("/tmp/nyx-source/unified_training_corpus.jsonl"),tokenizer,512,2026)
-          model=torch.load("/tmp/nyx-source/merged_initial.pt",map_location="cpu",weights_only=False)
+          checkpoint=torch.load("/tmp/nyx-current/model.pt",map_location="cpu",weights_only=False)
+          tokenizer=Tokenizer.from_file("/tmp/nyx-current/tokenizer.json")
+          if checkpoint.get("optimizer") is None:
+              raise SystemExit("Canonical checkpoint has no optimizer state; cannot safely resume training")
+          if checkpoint["vocab_size"]!=tokenizer.get_vocab_size():
+              raise SystemExit("Canonical model and tokenizer vocabulary mismatch")
+          train,valid,groups,_=make_samples(Path("/tmp/nyx-next/training_corpus.jsonl"),tokenizer,512,2026)
           if len(train)<300 or len(valid)<50:
-              raise SystemExit(f"Too few valid examples: train={len(train)}, validation={len(valid)}")
-          print(json.dumps({"train":len(train),"validation":len(valid),"groups":groups,"parameters":sum(x.numel() for x in model["model"].values())},ensure_ascii=False,indent=2))
+              raise SystemExit(f"Insufficient examples: train={len(train)} validation={len(valid)}")
+          start=int(checkpoint.get("step",-1))+1
+          print(json.dumps({"resume_from_step":start,"new_steps":100,"train":len(train),"validation":len(valid),"groups":groups},ensure_ascii=False,indent=2))
+          Path("/tmp/nyx-next/step_plan.json").write_text(json.dumps({"start_step":start,"target_step":start+100},indent=2))
           PY
 
-      - name: Reconcile all skills with joint SFT on the full merged corpus
+      - name: Continue training from the single canonical checkpoint
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
         run: |
+          START_STEP="$(python -c 'import json; print(json.load(open("/tmp/nyx-next/step_plan.json"))["start_step"])')"
+          TARGET_STEP="$((START_STEP + 100))"
           python training/finetune_instructions.py \
-            --data /tmp/nyx-source/unified_training_corpus.jsonl \
-            --tokenizer /tmp/nyx-source/tokenizer.json \
-            --init-from /tmp/nyx-source/merged_initial.pt \
-            --steps 100 --max-steps 100 \
+            --data /tmp/nyx-next/training_corpus.jsonl \
+            --tokenizer /tmp/nyx-current/tokenizer.json \
+            --resume /tmp/nyx-current/model.pt \
+            --steps "$TARGET_STEP" --max-steps 100 \
             --batch-size 2 --grad-accum-steps 2 \
             --block-size 512 --lr 1e-5 --warmup-steps 5 \
             --eval-every 20 --save-every 100 \
             --reset-best-loss --allow-cpu \
-            --out /tmp/nyx-package/checkpoints
+            --out /tmp/nyx-next/checkpoints
+          cp "/tmp/nyx-next/checkpoints/sft_step_${TARGET_STEP}.pt" /tmp/nyx-next/model.pt
 
-      - name: Export the one consolidated model and test real responses
+      - name: Export the updated Android model and run response checks
         env:
           OMP_NUM_THREADS: "2"
         run: |
-          set -euo pipefail
-          cd training
-          python export_mobile.py \
-            --checkpoint /tmp/nyx-package/checkpoints/sft_step_100.pt \
-            --tokenizer /tmp/nyx-source/tokenizer.json \
-            --out /tmp/nyx-package/model.onnx
-          cd ..
+          python training/export_mobile.py \
+            --checkpoint /tmp/nyx-next/model.pt \
+            --tokenizer /tmp/nyx-current/tokenizer.json \
+            --out /tmp/nyx-next/model.onnx
           python - <<'PY'
           import json, math, random
           from pathlib import Path
           import numpy as np
           import onnxruntime as ort
           from tokenizers import Tokenizer
-          tok=Tokenizer.from_file("/tmp/nyx-source/tokenizer.json")
-          session=ort.InferenceSession("/tmp/nyx-package/model.onnx",providers=["CPUExecutionProvider"])
+          tok=Tokenizer.from_file("/tmp/nyx-current/tokenizer.json")
+          session=ort.InferenceSession("/tmp/nyx-next/model.onnx",providers=["CPUExecutionProvider"])
           eos=tok.token_to_id("[EOS]")
           cases=[
-              ("greeting","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: ru\n### Task\nПривет\n### Solution\n"),
-              ("tokenizer","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: ru\n### Task\nЧто делает токенизатор?\n### Solution\n"),
-              ("calculator","### Level: 1\n### Topic: functions-basics\n### Task type: write_code\n### Language: python\n### Task\nСделай простой калькулятор на Python\n### Solution\n"),
-              ("godot","### Level: 1\n### Topic: game-development\n### Task type: explain\n### Language: gdscript\n### Task\nКак создать движение персонажа в Godot 4?\n### Solution\n"),
+              ("greeting","### Level: 1\n### Topic: general-conversation\n### Task type: dialogue\n### Language: ru\n### Task\nПривет!\n### Solution\n"),
+              ("tokenizer","### Level: 1\n### Topic: basics\n### Task type: explain\n### Language: ru\n### Task\nОбъясни простыми словами, что делает токенизатор.\n### Solution\n"),
+              ("calculator","### Level: 1\n### Topic: python-basics\n### Task type: write_code\n### Language: python\n### Task\nНапиши простой калькулятор на Python.\n### Solution\n")
           ]
           results=[]
           for name,prompt in cases:
               ids=tok.encode(prompt).ids[-512:]
               generated=[]
               rng=random.Random(20261127)
-              for _ in range(160):
+              for _ in range(120):
                   logits=session.run(["logits"],{"input_ids":np.array([ids[-512:]],dtype=np.int64)})[0][0,-1]
                   k=min(12,len(logits))
                   candidates=np.argpartition(logits,-k)[-k:]
@@ -305,34 +218,32 @@ jobs:
                           next_id=idx
                           break
                   if eos is not None and next_id==eos: break
-                  ids.append(next_id); generated.append(next_id)
+                  ids.append(next_id)
+                  generated.append(next_id)
               answer=tok.decode(generated,skip_special_tokens=True)
               print(f"\n===== {name.upper()} =====\n{answer}")
               if not answer.strip():
-                  raise SystemExit(f"Empty model response for {name}")
+                  raise SystemExit(f"Empty response for {name}")
               results.append({"test":name,"generated_tokens":len(generated),"answer":answer,"token_ids":generated})
-          Path("/tmp/nyx-package/inference_test.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf-8")
+          Path("/tmp/nyx-next/inference_test.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf-8")
           PY
 
-      - name: Assemble a single model bundle with the original base backup
+      - name: Assemble one canonical package while retaining the original base backup
         run: |
           python - <<'PY'
-          import hashlib, json, shutil
+          import hashlib, json, shutil, torch
           from pathlib import Path
-          from zipfile import ZipFile, ZIP_STORED, ZIP_DEFLATED
+          from zipfile import ZipFile, ZIP_STORED
           from tokenizers import Tokenizer
-          import torch
-          src=Path("/tmp/nyx-source")
-          pkg=Path("/tmp/nyx-package")
-          shutil.copy2(src/"tokenizer.json",pkg/"tokenizer.json")
-          shutil.copy2(src/"base_step_600.pt",pkg/"base_step_600_backup.pt")
-          checkpoint=pkg/"checkpoints/sft_step_100.pt"
-          shutil.copy2(checkpoint,pkg/"model.pt")
-          tokenizer=Tokenizer.from_file(str(pkg/"tokenizer.json"))
-          data=json.loads(tokenizer.to_str())
-          bpe=data.get("model",{})
+          src=Path("/tmp/nyx-current")
+          dst=Path("/tmp/nyx-next")
+          shutil.copy2(src/"tokenizer.json",dst/"tokenizer.json")
+          shutil.copy2(src/"base_step_600_backup.pt",dst/"base_step_600_backup.pt")
+          shutil.copy2(dst/"training_corpus.jsonl",dst/"training_corpus.jsonl")
+          tok=Tokenizer.from_file(str(dst/"tokenizer.json"))
+          bpe=json.loads(tok.to_str()).get("model",{})
           if bpe.get("type")!="BPE" or not bpe.get("vocab") or not bpe.get("merges"):
-              raise SystemExit("Tokenizer is not compatible with Android ByteLevel BPE")
+              raise SystemExit("Canonical tokenizer is not ByteLevel BPE")
           mobile={
               "vocab":bpe["vocab"],
               "merges":[" ".join(x) if isinstance(x,list) else str(x) for x in bpe["merges"]],
@@ -341,11 +252,10 @@ jobs:
               "normalizer":"NFKC",
               "pre_tokenizer":"ByteLevel"
           }
-          (pkg/"tokenizer_mobile.json").write_text(json.dumps(mobile,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
-          corpus=src/"unified_training_corpus.jsonl"
-          shutil.copy2(corpus,pkg/"training_corpus.jsonl")
-          report=json.loads((src/"corpus_report.json").read_text(encoding="utf-8"))
-          ckpt=torch.load(pkg/"model.pt",map_location="cpu",weights_only=False)
+          (dst/"tokenizer_mobile.json").write_text(json.dumps(mobile,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
+          previous=json.loads((src/"manifest.json").read_text(encoding="utf-8"))
+          ckpt=torch.load(dst/"model.pt",map_location="cpu",weights_only=False)
+          report=json.loads((dst/"corpus_report.json").read_text(encoding="utf-8"))
           manifest={
               "name":"NYXVAULT",
               "format_version":1,
@@ -355,47 +265,36 @@ jobs:
               "android_tokenizer":"tokenizer_mobile.json",
               "base_backup":"base_step_600_backup.pt",
               "base_pretraining_updates":600,
-              "shared_parent_checkpoint":"sft_step_50.pt",
-              "merged_sft_branches":{
-                  "chat_basics":{"checkpoint":"sft_step_100.pt","updates":50},
-                  "chat_python_v2":{"checkpoint":"sft_step_350.pt","updates":300},
-                  "russian_conversation":{"checkpoint":"sft_step_300.pt","updates":250},
-                  "shared_game_pilot_parent":{"checkpoint":"sft_step_50.pt","updates":50}
-              },
-              "merge_method":"average of the three independent task-vector deltas from the identical sft_step_50 parent, followed by joint SFT",
-              "joint_consolidation_updates":100,
+              "previous_manifest_checkpoint_step":previous.get("checkpoint_internal_step"),
               "checkpoint_internal_step":int(ckpt.get("step",-1))+1,
-              "unique_update_budget_including_base":1350,
+              "new_joint_sft_updates":100,
+              "continuous_training":"resumed directly from the previous bundle's model.pt including optimizer state",
               "training_corpus":report,
-              "checkpoint_sha256":hashlib.sha256((pkg/"model.pt").read_bytes()).hexdigest(),
-              "base_backup_sha256":hashlib.sha256((pkg/"base_step_600_backup.pt").read_bytes()).hexdigest()
+              "checkpoint_sha256":hashlib.sha256((dst/"model.pt").read_bytes()).hexdigest(),
+              "base_backup_sha256":hashlib.sha256((dst/"base_step_600_backup.pt").read_bytes()).hexdigest()
           }
-          (pkg/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+          (dst/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
           archive=Path("NYXVAULT_MODEL.zip")
-          include=["model.pt","model.onnx","tokenizer.json","tokenizer_mobile.json","base_step_600_backup.pt","training_corpus.jsonl","manifest.json","inference_test.json"]
+          members=["model.pt","model.onnx","tokenizer.json","tokenizer_mobile.json","base_step_600_backup.pt","training_corpus.jsonl","manifest.json","inference_test.json"]
           with ZipFile(archive,"w",ZIP_STORED,allowZip64=True) as z:
-              for name in include:
-                  p=pkg/name
-                  if not p.is_file(): raise SystemExit(f"Bundle member missing: {name}")
+              for name in members:
+                  p=dst/name
+                  if not p.is_file(): raise SystemExit(f"Missing package member: {name}")
                   z.write(p,name)
           with ZipFile(archive) as z:
-              bad=z.testzip()
-              if bad: raise SystemExit("ZIP integrity failure: "+bad)
-              print("Single model bundle:",archive.stat().st_size,"bytes")
-              print("Files inside:",z.namelist())
+              if z.testzip(): raise SystemExit("Updated model bundle failed ZIP integrity check")
+              print("Updated canonical model bundle:",archive.stat().st_size,"bytes")
+              print("Members:",z.namelist())
           print(json.dumps(manifest,ensure_ascii=False,indent=2))
           PY
 
-      - name: Store the single bundle in main using Git LFS
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Replace the one model bundle in main via Git LFS
         shell: bash
         run: |
           set -euo pipefail
           git lfs install --local
-          git lfs track "NYXVAULT_MODEL.zip"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes NYXVAULT_MODEL.zip
-          git commit -m "Consolidate NYXVAULT into one canonical model bundle"
+          git add NYXVAULT_MODEL.zip
+          git commit -m "Update the canonical NYXVAULT model"
           git push origin HEAD:main
