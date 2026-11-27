@@ -1,1 +1,3 @@
 Authorized run: expanded Russian chat, tokenizer and Python SFT v2.
+
+Retry v2 after shortening overlong answers to context-safe code examples.
