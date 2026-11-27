@@ -47,36 +47,88 @@ jobs:
           python - <<'PY'
           import pandas as pd, json, urllib.request, random
           from pathlib import Path
+
           url="https://huggingface.co/datasets/ZeroAgency/ru-instruct-conversation-v1/resolve/main/data/train-00000-of-00001.parquet"
           urllib.request.urlretrieve(url,"/tmp/ru.parquet")
           df=pd.read_parquet("/tmp/ru.parquet")
           print("Columns:",list(df.columns),"rows:",len(df))
+
+          def unwrap(value):
+              if hasattr(value,"as_py"):
+                  value=value.as_py()
+              if hasattr(value,"tolist") and not isinstance(value,(str,bytes,dict,list,tuple)):
+                  value=value.tolist()
+              return value
+
           def field(obj,key):
-              if isinstance(obj,dict): return obj.get(key)
-              try: return obj[key]
-              except Exception: return getattr(obj,key,None)
-          out=[]; seen=set()
-          for conv in df["conversation"].tolist():
-              if not isinstance(conv,(list,tuple)): continue
+              obj=unwrap(obj)
+              if isinstance(obj,dict):
+                  return unwrap(obj.get(key))
+              try:
+                  return unwrap(obj[key])
+              except Exception:
+                  return unwrap(getattr(obj,key,None))
+
+          def is_russian(text):
+              letters=[ch for ch in text if ch.isalpha()]
+              if not letters:
+                  return False
+              cyrillic=sum("\u0400" <= ch <= "\u052f" for ch in letters)
+              return cyrillic / len(letters) >= 0.15
+
+          out=[]
+          seen=set()
+          role_alias={"user":"user","human":"user","assistant":"assistant","gpt":"assistant","bot":"assistant"}
+          type_counts={}
+          for raw_conv in df["conversation"].tolist():
+              conv=unwrap(raw_conv)
+              if isinstance(conv,dict):
+                  conv=conv.get("messages",conv.get("conversation",[]))
+              conv=unwrap(conv)
+              if not isinstance(conv,(list,tuple)):
+                  try:
+                      conv=list(conv) if not isinstance(conv,(str,bytes,dict)) else []
+                  except Exception:
+                      conv=[]
               messages=[]
-              for m in conv:
-                  role=str(field(m,"role") or "").lower()
-                  content=str(field(m,"content") or "").strip()
-                  if role in ("user","assistant") and content: messages.append((role,content))
+              for raw_message in conv:
+                  role=str(field(raw_message,"role") or "").strip().lower()
+                  content=str(field(raw_message,"content") or "").strip()
+                  role=role_alias.get(role,"")
+                  if role and content:
+                      messages.append((role,content))
               for i in range(len(messages)-1):
                   if messages[i][0]=="user" and messages[i+1][0]=="assistant":
                       q,a=messages[i][1],messages[i+1][1]
-                      if len(q)>3500 or len(a)>3500: continue
+                      if not q or not a or len(q)>3500 or len(a)>3500:
+                          continue
+                      if not is_russian(q+" "+a):
+                          continue
                       key=(q,a)
-                      if key in seen: continue
+                      if key in seen:
+                          continue
                       seen.add(key)
-                      out.append({"id":f"ruconv_{len(out)+1:06d}","level":1,"language":"python","topic":"input-output","type":"explain","instruction":q,"output":a,"license":"mit","tags":["russian_chat"],"source":"ZeroAgency/ru-instruct-conversation-v1"})
+                      out.append({
+                          "id":f"ruconv_{len(out)+1:06d}",
+                          "level":1,
+                          "language":"ru",
+                          "topic":"general-conversation",
+                          "type":"dialogue",
+                          "instruction":q,
+                          "output":a,
+                          "license":"mit",
+                          "tags":["russian_chat"],
+                          "source":"ZeroAgency/ru-instruct-conversation-v1"
+                      })
+
           random.Random(2026).shuffle(out)
           out=out[:6000]
-          p=Path("training/data/russian_chat_prepared.jsonl"); p.parent.mkdir(parents=True,exist_ok=True)
-          p.write_text("".join(json.dumps(x,ensure_ascii=False)+"\\n" for x in out),encoding="utf-8")
-          print("Prepared records:",len(out))
-          if len(out)<500: raise SystemExit("Too few prepared examples")
+          p=Path("training/data/russian_chat_prepared.jsonl")
+          p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in out),encoding="utf-8")
+          print("Prepared Russian records:",len(out))
+          if len(out)<500:
+              raise SystemExit("Too few Russian conversation pairs after conversion; refusing to train.")
           PY
       - name: Filter context length
         run: |
@@ -89,17 +141,27 @@ jobs:
           rows=[]
           for line in p.read_text(encoding="utf-8").splitlines():
               r=json.loads(line)
-              if len(tok.encode(r["instruction"]).ids)<350 and len(tok.encode(r["output"]).ids)<350: rows.append(r)
+              if len(tok.encode(r["instruction"]).ids)<350 and len(tok.encode(r["output"]).ids)<350:
+                  rows.append(r)
           p.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in rows),encoding="utf-8")
-          print("Context-safe records:",len(rows))
-          if len(rows)<300: raise SystemExit("Insufficient context-safe examples")
+          print("Context-safe Russian records:",len(rows))
+          if len(rows)<300:
+              raise SystemExit("Insufficient context-safe Russian examples.")
           PY
       - name: Continue SFT
         env:
           OMP_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
         run: |
-          python training/finetune_instructions.py             --data training/data/russian_chat_prepared.jsonl             --tokenizer /tmp/nyx-base/tokenizer.json             --resume /tmp/nyx-base/sft_step_50.pt             --steps 300 --max-steps 250             --batch-size 2 --grad-accum-steps 2             --block-size 512 --lr 1e-5 --warmup-steps 20             --eval-every 25 --save-every 50             --reset-best-loss --allow-cpu --out artifacts/russian_sft_checkpoints
+          python training/finetune_instructions.py \
+            --data training/data/russian_chat_prepared.jsonl \
+            --tokenizer /tmp/nyx-base/tokenizer.json \
+            --resume /tmp/nyx-base/sft_step_50.pt \
+            --steps 300 --max-steps 250 \
+            --batch-size 2 --grad-accum-steps 2 \
+            --block-size 512 --lr 1e-5 --warmup-steps 20 \
+            --eval-every 25 --save-every 50 \
+            --reset-best-loss --allow-cpu --out artifacts/russian_sft_checkpoints
       - name: Verify outputs
         run: |
           test -f artifacts/russian_sft_checkpoints/sft_step_300.pt
@@ -109,9 +171,20 @@ jobs:
           from pathlib import Path
           f=torch.load("artifacts/russian_sft_checkpoints/sft_step_300.pt",map_location="cpu",weights_only=False)
           b=torch.load("artifacts/russian_sft_checkpoints/best_sft.pt",map_location="cpu",weights_only=False)
-          report={"dataset":"ZeroAgency/ru-instruct-conversation-v1","starting_checkpoint":"sft_step_50.pt","new_steps":250,"total_sft_updates":300,"base_steps":600,"prepared_examples":sum(1 for _ in open("training/data/russian_chat_prepared.jsonl",encoding="utf-8")),"best_validation_loss":float(b.get("best_validation_loss",float("nan"))),"checkpoint_step":int(f.get("step",-1))}
+          report={
+              "dataset":"ZeroAgency/ru-instruct-conversation-v1",
+              "starting_checkpoint":"sft_step_50.pt",
+              "new_steps":250,
+              "total_sft_updates":300,
+              "base_steps":600,
+              "prepared_examples":sum(1 for _ in open("training/data/russian_chat_prepared.jsonl",encoding="utf-8")),
+              "best_validation_loss":float(b.get("best_validation_loss",float("nan"))),
+              "checkpoint_step":int(f.get("step",-1))
+          }
           Path("artifacts/russian_sft_metrics.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
           print(json.dumps(report,ensure_ascii=False,indent=2))
+          if report["checkpoint_step"] < 300:
+              raise SystemExit("Checkpoint step verification failed.")
           PY
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
