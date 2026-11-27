@@ -239,7 +239,6 @@ jobs:
           dst=Path("/tmp/nyx-next")
           shutil.copy2(src/"tokenizer.json",dst/"tokenizer.json")
           shutil.copy2(src/"base_step_600_backup.pt",dst/"base_step_600_backup.pt")
-          shutil.copy2(dst/"training_corpus.jsonl",dst/"training_corpus.jsonl")
           tok=Tokenizer.from_file(str(dst/"tokenizer.json"))
           bpe=json.loads(tok.to_str()).get("model",{})
           if bpe.get("type")!="BPE" or not bpe.get("vocab") or not bpe.get("merges"):
