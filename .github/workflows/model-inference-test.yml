@@ -295,4 +295,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add NYXVAULT_MODEL.zip
           git commit -m "Update the canonical NYXVAULT model"
+          git pull --rebase origin main
           git push origin HEAD:main
