@@ -131,16 +131,25 @@ jobs:
           from training.data_schema import normalize_record, validate_record
           schema_valid=[]
           schema_rejected=0
+          duplicate_after_normalization=0
+          normalized_task_keys=set()
           for record in out:
               normalized=normalize_record(record)
               issues=validate_record(normalized)
               if any(issue.severity=="error" or issue.code=="W010" for issue in issues):
                   schema_rejected += 1
                   continue
+              # Match the exact task-key logic in finetune_instructions.make_samples.
+              task_key=(normalized["instruction"],normalized.get("input",""))
+              if task_key in normalized_task_keys:
+                  duplicate_after_normalization += 1
+                  continue
+              normalized_task_keys.add(task_key)
               schema_valid.append(normalized)
           out=schema_valid
           print("Rejected by schema validation:",schema_rejected)
-          print("Schema-valid Russian records:",len(out))
+          print("Duplicates removed after normalization:",duplicate_after_normalization)
+          print("Schema-valid unique Russian records:",len(out))
 
           p=Path("training/data/russian_chat_prepared.jsonl")
           p.parent.mkdir(parents=True,exist_ok=True)
