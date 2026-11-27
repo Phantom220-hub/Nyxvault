@@ -1,6 +1,6 @@
 # NYXVAULT training data sources
 
-Last reviewed: 2026-11-27. The notebook records the actual Wikipedia page title, language, canonical URL, revision ID and retrieval date in `training_data/attributions.jsonl`.
+Last reviewed: 2026-11-27. The notebook records the actual Wikipedia page title, language, canonical URL, revision ID and retrieval date in `training/data/attributions.jsonl`.
 
 | Source | License / conditions | Link | Date |
 |---|---|---|---|
