@@ -1,0 +1,88 @@
+name: NYXVAULT real model inference test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download exact SFT checkpoint and matching tokenizer
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nyx-base /tmp/nyx-model
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/nyx-base.zip
+          unzip -q /tmp/nyx-base.zip -d /tmp/nyx-base
+          TOKENIZER="$(find /tmp/nyx-base -type f -path '*/artifacts/tokenizer.json' -print -quit)"
+          if [ -z "$TOKENIZER" ]; then TOKENIZER="$(find /tmp/nyx-base -type f -name tokenizer.json -print -quit)"; fi
+          test -n "$TOKENIZER"
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" -o /tmp/nyx-model/sft_step_50.pt
+          echo "TOKENIZER_PATH=$TOKENIZER" >> "$GITHUB_ENV"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy tokenizers onnx onnxruntime onnxscript
+
+      - name: Export checkpoint to ONNX
+        run: |
+          mkdir -p /tmp/nyx-mobile
+          cd training
+          python export_mobile.py --checkpoint /tmp/nyx-model/sft_step_50.pt --tokenizer "$TOKENIZER_PATH" --out /tmp/nyx-mobile/nyxvault.onnx
+          cp "$TOKENIZER_PATH" /tmp/nyx-mobile/tokenizer.json
+
+      - name: Ask NYXVAULT a test question using ONNX Runtime
+        run: |
+          cat > /tmp/run_inference.py <<'PY'
+          import json
+          import onnxruntime as ort
+          from tokenizers import Tokenizer
+
+          model_path = "/tmp/nyx-mobile/nyxvault.onnx"
+          tokenizer = Tokenizer.from_file("/tmp/nyx-mobile/tokenizer.json")
+          session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+          prompt = "Вопрос: Объясни простыми словами, почему небо голубое. Приведи пример из жизни. Ответ:"
+          ids = tokenizer.encode(prompt).ids
+          if not ids:
+              raise RuntimeError("Tokenizer produced no input tokens")
+          eos = tokenizer.token_to_id("[EOS]")
+          generated = []
+          for _ in range(160):
+              outputs = session.run(["logits"], {"input_ids": __import__("numpy").array([ids[-512:]], dtype="int64")})
+              next_id = int(outputs[0][0, -1].argmax())
+              if eos is not None and next_id == eos:
+                  break
+              ids.append(next_id)
+              generated.append(next_id)
+          answer = tokenizer.decode(generated, skip_special_tokens=True)
+          print("\n===== NYXVAULT REAL ONNX INFERENCE =====")
+          print("Prompt:", prompt)
+          print("Generated tokens:", len(generated))
+          print("Answer:\n" + answer)
+          print("===== END =====")
+          with open("/tmp/nyxvault-answer.txt", "w", encoding="utf-8") as f:
+              f.write("PROMPT:\n" + prompt + "\n\nGENERATED TOKENS: " + str(len(generated)) + "\n\nANSWER:\n" + answer + "\n")
+          if not answer.strip():
+              raise RuntimeError("Model returned an empty answer")
+          PY
+          python /tmp/run_inference.py
+
+      - name: Upload real model answer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NYXVAULT-real-inference-answer
+          path: /tmp/nyxvault-answer.txt
+          if-no-files-found: error
