@@ -44,13 +44,22 @@ The 5,000 SFT records are deterministic parameter variations from authored templ
 
 Wikipedia collection is optional and subject to source rate limits. A 429 response means the source is rate-limiting requests; skipped pages must not be represented as collected training data. Review `DATA_SOURCES.md` and the generated attribution manifest for source-specific terms.
 
-## Training stages
+## Consolidated model lineage
 
-1. Base language-model training: `training/nyxvault_train.ipynb` and `training/train.py`.
-2. Instruction dataset generation: `training/generate_instruction_dataset.py`.
-3. Instruction fine-tuning: `training/nyxvault_sft.ipynb` and `training/finetune_instructions.py`.
-4. Instruction inference: `training/generate_instruction.py`.
-5. Mobile export: `training/export_mobile.py`.
+The current canonical bundle is `NYXVAULT_MODEL.zip` at the root of `main`, tracked through Git LFS. It contains one resumable `model.pt`, the matching tokenizer, Android ONNX export, combined training corpus, manifest, inference-check output and the original `base_step_600_backup.pt`.
+
+The consolidation used three compatible SFT checkpoints that shared `sft_step_50.pt` as their parent:
+- Chat/Python basics: `sft_step_100.pt`.
+- Expanded chat and Python projects: `sft_step_350.pt`.
+- Russian conversation: `sft_step_300.pt`.
+
+Their task-vector deltas from the common parent were averaged, then jointly fine-tuned for 100 additional optimizer updates on a validated, de-duplicated corpus of 2,961 records. The final checkpoint is the result of that joint stage; it is not a literal sequential addition of every sibling's step counter.
+
+The initial consolidated checkpoint has an internal joint-stage step of 100. The base step-600 checkpoint is preserved separately inside the same archive as a read-only backup.
+
+## Active training process
+
+`.github/workflows/model-inference-test.yml` is the only active model-training workflow. It resumes directly from the previous bundle's `model.pt` and optimizer state, extends the canonical training corpus with validated JSONL records from `training/data/`, performs a new SFT stage, exports ONNX and updates the same LFS archive in `main`. Historical Release assets and workflow artifacts are migration inputs only.
 
 ## Limitations
 
@@ -62,4 +71,8 @@ Wikipedia collection is optional and subject to source rate limits. A 429 respon
 
 ## Model artifacts
 
-Large binary checkpoints and exported models are stored as GitHub Release assets rather than ordinary Git blobs. Use `training/publish_release_assets.py` to publish a ZIP archive from Colab. Do not commit access tokens, personal conversations, or private local notes.
+The single current model package is `main/NYXVAULT_MODEL.zip` (Git LFS). Retrieve the full archive with `git lfs pull`. It includes `model.pt`, `model.onnx`, matching `tokenizer.json` and `tokenizer_mobile.json`, `training_corpus.jsonl`, `manifest.json`, `inference_test.json`, and `base_step_600_backup.pt`.
+
+## Observed inference quality
+
+The first consolidated ONNX inference checks produced non-empty output for greeting, tokenizer, calculator and Godot prompts, but the generated text was still incoherent and did not pass a semantic-quality check. These were technical export/generation checks, not proof of useful conversation or programming ability. The model remains experimental and needs substantially more high-quality training and evaluation before it can be considered reliable.
