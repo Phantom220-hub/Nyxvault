@@ -28,6 +28,8 @@ def make(cat, i, level, language, topic, kind, instruction, output, input_text=N
 def py_task(i):
     k, v = i % 10, i // 10
     a = nums(v)
+    if len(set(a)) < 2:
+        a[-1] += 1
     if k == 0:
         code = "def sum_positive(values: list[int]) -> int:\n    return sum(x for x in values if x > 0)"
         expected = sum(x for x in a if x > 0)
