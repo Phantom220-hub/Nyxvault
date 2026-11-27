@@ -69,7 +69,7 @@ jobs:
           from pathlib import Path
           from tokenizers import Tokenizer
 
-          source = Path("training_data/raw/nyxvault_game_training_part1_fixed.jsonl")
+          source = Path("training/data/code_projects_seed.jsonl")
           tokenizer = Tokenizer.from_file("/tmp/nyxvault-base/tokenizer.json")
           eos_id = tokenizer.token_to_id("[EOS]")
           pad_id = tokenizer.token_to_id("[PAD]")
