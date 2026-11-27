@@ -1,0 +1,33 @@
+package com.nyxvault.app
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ProgrammingPromptTest {
+    @Test
+    fun pythonCodeRequestUsesStructuredTrainingFormat() {
+        val prompt = ProgrammingPrompt.build("Напиши калькулятор на Python")
+        assertTrue(prompt.contains("### Level: 1"))
+        assertTrue(prompt.contains("### Topic: functions-basics"))
+        assertTrue(prompt.contains("### Task type: write_code"))
+        assertTrue(prompt.contains("### Language: python"))
+        assertTrue(prompt.endsWith("### Solution\n"))
+    }
+
+    @Test
+    fun godotGameRequestUsesCompleteProjectFormat() {
+        val prompt = ProgrammingPrompt.build("Создай игру на Godot 4")
+        assertTrue(prompt.contains("### Level: 8"))
+        assertTrue(prompt.contains("### Topic: complete-programs"))
+        assertTrue(prompt.contains("### Task type: design"))
+        assertTrue(prompt.contains("### Language: gdscript"))
+    }
+
+    @Test
+    fun previousContextIsKeptInsideTheTaskSection() {
+        val prompt = ProgrammingPrompt.build("Добавь сохранение", "У нас уже есть игра на Godot.")
+        assertTrue(prompt.contains("### Task\n"))
+        assertTrue(prompt.contains("У нас уже есть игра на Godot."))
+        assertTrue(prompt.contains("Текущая задача").not())
+    }
+}
