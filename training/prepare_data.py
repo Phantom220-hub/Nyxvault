@@ -212,8 +212,8 @@ def build_dataset(
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    train_text = "\n\n".join(item["text"] for item in train_docs)
-    validation_text = "\n\n".join(item["text"] for item in validation_docs)
+    train_text = "\n\n[EOS]\n\n".join(item["text"] for item in train_docs) + "\n[EOS]"
+    validation_text = "\n\n[EOS]\n\n".join(item["text"] for item in validation_docs) + "\n[EOS]"
     (output / "train.txt").write_text(train_text, encoding="utf-8")
     (output / "validation.txt").write_text(validation_text, encoding="utf-8")
 
