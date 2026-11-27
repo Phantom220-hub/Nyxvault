@@ -105,6 +105,24 @@ class PrepareDataCompatibilityTests(unittest.TestCase):
         )
         self.assertIn("    def inner():\n        return 7", combined)
 
+    def test_adds_eos_boundary_to_each_split(self):
+        (self.raw / "first.txt").write_text(
+            "First independent training document with enough useful content.",
+            encoding="utf-8",
+        )
+        (self.raw / "second.txt").write_text(
+            "Second independent validation document with enough useful content.",
+            encoding="utf-8",
+        )
+        build_dataset(
+            self.raw, self.knowledge, self.out,
+            val_ratio=0.5, min_chars=10, min_documents=2, seed=3,
+        )
+        train = (self.out / "train.txt").read_text(encoding="utf-8")
+        validation = (self.out / "validation.txt").read_text(encoding="utf-8")
+        self.assertTrue(train.endswith("[EOS]"))
+        self.assertTrue(validation.endswith("[EOS]"))
+
     def test_preserves_urls_in_code_text(self):
         (self.raw / "urls.txt").write_text(
             'Example source code with a URL that must survive normalization.\n'
