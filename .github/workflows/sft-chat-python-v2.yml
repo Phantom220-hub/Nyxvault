@@ -1,0 +1,211 @@
+name: NYXVAULT expanded chat and Python SFT v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/SFT_CHAT_V2_START.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  train-expanded-sft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download previous merged checkpoint and matching tokenizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nyx-base
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/base.zip
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+          with ZipFile("/tmp/base.zip") as z:
+              matches=[n for n in z.namelist() if Path(n).name=="tokenizer.json"]
+              if len(matches)!=1:
+                  raise SystemExit(f"Expected one tokenizer.json, found {matches}")
+              with z.open(matches[0]) as src, open("/tmp/nyx-base/tokenizer.json","wb") as dst:
+                  shutil.copyfileobj(src,dst)
+          PY
+          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" -o /tmp/nyx-base/sft_step_50.pt
+          test "$(stat -c%s /tmp/nyx-base/sft_step_50.pt)" -gt 1000000
+
+      - name: Install CPU training and inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers onnx onnxruntime onnxscript
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Validate expanded dataset and tokenizer
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tokenizers import Tokenizer
+          from training.finetune_instructions import make_samples
+          tok=Tokenizer.from_file("/tmp/nyx-base/tokenizer.json")
+          eos=tok.token_to_id("[EOS]")
+          pad=tok.token_to_id("[PAD]")
+          if eos is None or pad is None or eos==pad:
+              raise SystemExit("EOS/PAD token IDs are missing or identical")
+          samples, valid, counts, _=make_samples(Path("training/data/chat_python_projects_v2.jsonl"),tok,512,2026)
+          print(json.dumps({
+            "records":sum(v["train"]+v["validation"] for v in counts.values()),
+            "train":len(samples),"validation":len(valid),"groups":counts,
+            "eos_id":eos,"pad_id":pad,
+            "roundtrip":{s:tok.decode(tok.encode(s).ids) for s in ["Привет","Что такое токенизатор?","Сделай простой калькулятор на Python"]}
+          },ensure_ascii=False,indent=2))
+          for s in ["Привет","Что такое токенизатор?","Сделай простой калькулятор на Python"]:
+              if tok.decode(tok.encode(s).ids)!=s:
+                  raise SystemExit("Tokenizer round-trip failed: "+s)
+          PY
+
+      - name: Continue SFT from sft_step_50 for 300 optimizer updates
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python training/finetune_instructions.py \
+            --data training/data/chat_python_projects_v2.jsonl \
+            --tokenizer /tmp/nyx-base/tokenizer.json \
+            --resume /tmp/nyx-base/sft_step_50.pt \
+            --steps 350 --max-steps 300 \
+            --batch-size 2 --grad-accum-steps 2 \
+            --block-size 512 --lr 2e-5 --warmup-steps 20 \
+            --eval-every 25 --save-every 50 \
+            --reset-best-loss --allow-cpu --out artifacts/sft_checkpoints
+
+      - name: Verify checkpoint, report metrics and export best weights
+        run: |
+          python - <<'PY'
+          import json, torch
+          from pathlib import Path
+          old=torch.load("/tmp/nyx-base/sft_step_50.pt",map_location="cpu",weights_only=False)
+          final_path=Path("artifacts/sft_checkpoints/sft_step_350.pt")
+          best_path=Path("artifacts/sft_checkpoints/best_sft.pt")
+          if not final_path.is_file() or not best_path.is_file():
+              raise SystemExit("Final or best SFT checkpoint is missing")
+          final=torch.load(final_path,map_location="cpu",weights_only=False)
+          best=torch.load(best_path,map_location="cpu",weights_only=False)
+          changed=sum((final["model"][k].float()!=v.float()).any().item() for k,v in old["model"].items())
+          if changed==0: raise SystemExit("No model parameter changed")
+          report={
+            "starting_checkpoint":"sft_step_50.pt",
+            "final_checkpoint":"sft_step_350.pt",
+            "best_checkpoint":"best_sft.pt",
+            "pretraining_updates":600,
+            "previous_sft_updates":50,
+            "new_sft_updates":300,
+            "total_sft_updates":350,
+            "cumulative_updates":950,
+            "training_records":sum(1 for _ in open("training/data/chat_python_projects_v2.jsonl",encoding="utf-8")),
+            "changed_parameter_tensors":int(changed),
+            "best_validation_loss":float(best.get("best_validation_loss",float("nan"))),
+            "final_validation_loss":float(final.get("best_validation_loss",float("nan"))),
+            "dynamic_padding":True,
+            "note":"Experimental small model; outputs are evaluated separately and are not guaranteed to be reliable."
+          }
+          Path("artifacts/sft_metrics_v2.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          python training/export_mobile.py --checkpoint artifacts/sft_checkpoints/best_sft.pt --tokenizer /tmp/nyx-base/tokenizer.json --out artifacts/nyxvault_chat_python_v2.onnx
+
+      - name: Run real ONNX tests with Android top-k sampling
+        env:
+          OMP_NUM_THREADS: "2"
+        run: |
+          cat > /tmp/test_v2.py <<'PY'
+          import json, math, random
+          from pathlib import Path
+          import numpy as np
+          import onnxruntime as ort
+          from tokenizers import Tokenizer
+          tok=Tokenizer.from_file("/tmp/nyx-base/tokenizer.json")
+          session=ort.InferenceSession("artifacts/nyxvault_chat_python_v2.onnx",providers=["CPUExecutionProvider"])
+          eos=tok.token_to_id("[EOS]")
+          cases=[
+            ("greeting","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: python\n### Task\nПривет\n### Solution\n"),
+            ("tokenizer","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: python\n### Task\nЧто делает токенизатор?\n### Solution\n"),
+            ("calculator","### Level: 1\n### Topic: functions-basics\n### Task type: write_code\n### Language: python\n### Task\nСделай простой калькулятор на Python\n### Solution\n")
+          ]
+          results=[]
+          for name,prompt in cases:
+            ids=tok.encode(prompt).ids[-512:]
+            generated=[]
+            rng=random.Random(20261127)
+            for _ in range(220):
+              logits=session.run(["logits"],{"input_ids":np.array([ids[-512:]],dtype=np.int64)})[0][0,-1]
+              k=min(12,len(logits))
+              candidates=np.argpartition(logits,-k)[-k:]
+              candidates=sorted(candidates.tolist(),key=lambda i:float(logits[i]),reverse=True)
+              temp=0.8
+              top=max(float(logits[i])/temp for i in candidates)
+              weights=[math.exp(float(logits[i])/temp-top) for i in candidates]
+              choice=rng.random()*sum(weights)
+              nxt=candidates[-1]
+              for idx,w in zip(candidates,weights):
+                choice-=w
+                if choice<=0:
+                  nxt=idx
+                  break
+              if nxt==eos: break
+              ids.append(nxt)
+              generated.append(nxt)
+            answer=tok.decode(generated,skip_special_tokens=True)
+            print(f"\n===== {name.upper()} =====")
+            print("tokens:",len(generated))
+            print("answer:\n"+answer)
+            results.append({"test":name,"token_count":len(generated),"answer":answer,"token_ids":generated})
+          Path("artifacts/inference_v2.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf-8")
+          PY
+          python /tmp/test_v2.py
+
+      - name: Upload checkpoint, ONNX and diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: NYXVAULT-expanded-chat-python-v2
+          path: |
+            artifacts/sft_checkpoints/sft_step_350.pt
+            artifacts/sft_checkpoints/best_sft.pt
+            artifacts/sft_metrics_v2.json
+            artifacts/nyxvault_chat_python_v2.onnx
+            artifacts/tokenizer_mobile.json
+            artifacts/inference_v2.json
+            training/data/chat_python_projects_v2.jsonl
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish continued SFT checkpoint
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nyxvault-sft-chat-python-v2-2026-11-27
+          name: NYXVAULT expanded chat and Python SFT v2
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/sft_checkpoints/sft_step_350.pt
+            artifacts/sft_checkpoints/best_sft.pt
+            artifacts/sft_metrics_v2.json
+            training/data/chat_python_projects_v2.jsonl
+          body: |
+            Continued from the previous merged sft_step_50.pt checkpoint.
+            Dataset: 94 original examples covering Russian conversation, tokenizer/EOS concepts, Python fundamentals and existing code-project examples.
+            300 additional CPU optimizer updates using dynamic batch padding.
+            Reported cumulative updates: 600 base + 350 SFT = 950.
+            Experimental checkpoint; inspect the inference results before using it in the Android app.
