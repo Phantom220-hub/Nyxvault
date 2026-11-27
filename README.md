@@ -26,14 +26,19 @@ gradle --no-daemon :app:assembleDebug
 
 GitHub Actions runs Kotlin tests and builds the debug APK.
 
-## Train the one Transformer
+## One canonical model
 
-Open the [NYXVAULT training notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) in Colab or Kaggle with a GPU. The notebook uses the main branch, prepares the corpus, trains the tokenizer, runs a short CPU integration check against the prepared text, and then trains the full Transformer, evaluates it, and exports:
-- `nyxvault.onnx`
-- `tokenizer_mobile.json`
+The current trained NYXVAULT model is stored in exactly one place: **`NYXVAULT_MODEL.zip` at the repository root on `main`**, tracked with Git LFS.
 
-The model is not bundled into the APK because trained weights are produced by the GPU training run. The app remains useful without it through local knowledge, math and reasoning tools.
+Download the repository with Git LFS enabled, then run `git lfs pull` to retrieve the full archive. It contains the canonical resumable `model.pt`, Android `model.onnx`, matching desktop/mobile tokenizers, the full combined training corpus, a manifest, real inference-check results, and the immutable original `base_step_600_backup.pt`.
 
+The binary archive is intentionally a single Git LFS object rather than many visible checkpoint files and folders. Do not use historical Release assets or old Actions artifacts as the current model.
+
+## Continue training the same model
+
+The only active model-training workflow is `.github/workflows/model-inference-test.yml`. It reads `NYXVAULT_MODEL.zip` from `main`, resumes from its `model.pt` **including optimizer state**, adds validated JSONL data from `training/data/`, runs another SFT stage, exports and checks Android ONNX inference, then replaces the same archive in `main`.
+
+Add new training records under `training/data/*.jsonl`, or manually dispatch the canonical workflow. The file `training/RUSSIAN_SFT_START.txt` is the manual push trigger. There are no active separate chat, Python, Godot or Russian SFT workflows.
 
 ## Programming dataset format and checks
 
@@ -79,16 +84,15 @@ This invokes the actual `training/train.py` script with a small model, checks fi
 
 ## Instruction fine-tuning (SFT)
 
-After the base model has a saved full checkpoint such as `/content/nyxvault-output/checkpoints/step_600.pt` (or another `step_N.pt` checkpoint), open the [NYXVAULT SFT Colab notebook](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It downloads the current `main` source, generates a deterministic 5,000-record starter instruction corpus (1,000 each for Python, JavaScript/TypeScript, algorithms, debugging and Godot/GDScript), validates its schema and Python examples, then runs a separate 100-step SFT stage.
+`training/finetune_instructions.py` performs instruction fine-tuning with prompt-loss masking, validation splits and resumable optimizer state. The current model's training history, latest checkpoint, tokenizer, Android export and combined training corpus are kept together in the root-level `NYXVAULT_MODEL.zip`.
+
+Historical notebooks remain as research references only. They are not the active model-update path and must not publish independent checkpoints or releases.
 
 SFT source files:
-- `training/generate_instruction_dataset.py` — deterministic dataset generator.
-- `training/finetune_instructions.py` — instruction fine-tuning with prompt-loss masking, stratified validation and resumable `sft_step_N.pt` checkpoints.
-- `training/generate_instruction.py` — instruction-formatted inference.
-
-The 5,000 records are template-authored parameter variations, not 5,000 separately human-reviewed tasks. The corpus is generated in Colab and is not duplicated as a large generated JSONL file in GitHub. The base checkpoint `step_600.pt` is read-only during SFT; SFT results are saved under `/content/nyxvault-output/sft_checkpoints`. Save `nyxvault-output` to Google Drive after every stage because Colab's `/content` storage is temporary.
-
-The base-training notebook is staged: its default run is the first 100 updates of the 5,000-step base schedule. The base Colab notebook mounts Google Drive, saves the complete `nyxvault-output` folder after each 100-step stage, and automatically resumes the newest checkpoint without re-downloading or re-tokenizing the corpus. The SFT notebook restores that same Drive folder and automatically selects the newest `step_*.pt` file in the base `checkpoints/` folder. It never uses or overwrites an SFT checkpoint as a base model.
+- `training/data_schema.py` — dataset validation and canonical prompt formatting.
+- `training/finetune_instructions.py` — resumable instruction fine-tuning.
+- `training/export_mobile.py` — matching ONNX and Android tokenizer export.
+- `.github/workflows/model-inference-test.yml` — only active continuous-training workflow.
 
 ## Complete repository map
 
@@ -102,15 +106,15 @@ All active NYXVAULT source code, app code, training code, seed datasets, noteboo
 - `legacy/` — source files preserved from earlier prototype branches. They are archived and are not part of the active build.
 - `MODEL_CARD.md` — model architecture, data, observed validation results and limitations.
 
-## One-repository training workflow
+## Canonical model workflow
 
-1. Open the [base training Colab](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_train.ipynb) to create or continue the base Transformer checkpoint.
-2. Save the full `nyxvault-output` folder to `Google Drive / MyDrive / NYXVAULT / nyxvault-output`.
-3. Open the [instruction SFT Colab](https://colab.research.google.com/github/Phantom220-hub/Nyxvault/blob/main/training/nyxvault_sft.ipynb). It restores the saved folder when the temporary Colab runtime is fresh, fetches current source from this repository, generates and validates the instruction dataset, and trains SFT into a separate `sft_checkpoints/` directory.
-4. The SFT notebook packages model checkpoints, tokenizer, processed data, generated instruction JSONL and validation report into one ZIP and saves it to Google Drive.
-5. To publish that binary ZIP inside this same GitHub repository, add a private Colab Secret named `NYXVAULT_GITHUB_TOKEN` with permission to create and upload repository Releases, then run the optional final notebook cell. The cell calls `training/publish_release_assets.py`. Never paste the token into a notebook cell or chat.
+1. Retrieve the single current bundle from `main/NYXVAULT_MODEL.zip` using Git LFS.
+2. Add validated JSONL examples to `training/data/`, or manually start the canonical workflow.
+3. The workflow resumes from the previous bundle's `model.pt`; it does not restart from the base model or an old release checkpoint.
+4. It rebuilds the same archive with the updated checkpoint, Android export, combined corpus, manifest, inference checks and preserved base backup.
+5. The updated archive replaces the old one at the same path in `main`.
 
-Large binary weights are stored as assets in this repository's GitHub Releases, not as regular Git files. This keeps the source tree usable while keeping trained model artifacts attached to the same project. They are not present in GitHub until the owner uploads them from the Colab session.
+Old Release assets and Actions artifacts are migration history only. They are not used as the current model source.
 
 ## Archived branches
 
