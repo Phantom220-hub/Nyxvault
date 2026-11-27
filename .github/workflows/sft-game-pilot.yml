@@ -82,11 +82,11 @@ jobs:
               answer = row["output"]
               answer_tokens = len(tokenizer.encode(answer).ids) + 1
               if answer_tokens > 504:
-                  match = re.search(r"```gdscript\s*([\s\S]*?)\n```", answer)
+                  match = re.search(r"```" + re.escape(row["language"]) + r"\s*([\s\S]*?)\n```", answer)
                   if not match:
                       skipped.append({"id": row["id"], "reason": "answer over 504 tokens; no code block"})
                       continue
-                  answer = "Полный код решения:\n```gdscript\n" + match.group(1).strip() + "\n```"
+                  answer = "Полный код решения:\n```" + row["language"] + "\n" + match.group(1).strip() + "\n```"
                   answer_tokens = len(tokenizer.encode(answer).ids) + 1
                   if answer_tokens > 504:
                       skipped.append({"id": row["id"], "reason": f"code-only answer still has {answer_tokens} tokens"})
@@ -193,8 +193,8 @@ jobs:
       - name: Publish SFT checkpoints as a GitHub prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nyxvault-sft-godot-pilot-2026-11-27
-          name: NYXVAULT Godot SFT pilot (25 CPU steps)
+          tag_name: nyxvault-sft-merged-projects-2026-11-27
+          name: NYXVAULT merged project SFT (25 CPU steps)
           prerelease: true
           fail_on_unmatched_files: true
           files: |
