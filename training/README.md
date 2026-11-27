@@ -1,43 +1,43 @@
 # NYXVAULT training system
 
-All active training components are maintained in this directory and the parent repository. Run them from the repository root.
+All model source code and training data live in this repository. The current model itself has one canonical location: `NYXVAULT_MODEL.zip` at the root of `main` (Git LFS).
 
-## Base language model
+## Canonical model and continuous training
+
+- `NYXVAULT_MODEL.zip` contains the current `model.pt`, matching tokenizer, Android ONNX export, combined training corpus, manifest, inference checks and immutable `base_step_600_backup.pt`.
+- `training/finetune_instructions.py` performs resumable SFT and restores optimizer/RNG state from the canonical checkpoint.
+- `.github/workflows/model-inference-test.yml` is the only active model-training workflow. It reads the root bundle from Git LFS, adds validated data from `training/data/*.jsonl`, resumes directly from the bundle's `model.pt`, exports and checks ONNX inference, then updates the same `NYXVAULT_MODEL.zip` in `main`.
+- Push new JSONL training examples to `training/data/`, or use the workflow's manual dispatch. Do not start separate SFT pipelines or publish independent checkpoint artifacts/releases.
+- `training/RUSSIAN_SFT_START.txt` is the manual push trigger. It starts the same canonical pipeline; it does not create a separate model.
+
+## Source code
 
 - `model.py`: decoder-only GPT-style Transformer.
-- `train.py`: resumable next-token training, validation loss, best weights, and optimizer checkpoints.
+- `train.py`: base next-token training.
 - `train_tokenizer.py`: ByteLevel BPE tokenizer training.
-- `prepare_data.py`: prepares train/validation text from the canonical JSONL and raw-data folders.
-- `evaluate.py`: validation metrics and fixed prompt smoke checks.
-- `export_mobile.py`: exports the trained model for the Android runtime.
-- `nyxvault_train.ipynb`: Colab/Kaggle base-training workflow. In Colab it mounts Google Drive, restores the latest full checkpoint and exact processed corpus/tokenizer, then saves the updated `nyxvault-output` folder after every 100-step stage.
+- `prepare_data.py`: prepares base-training text.
+- `evaluate.py`: validation metrics and prompt checks.
+- `finetune_instructions.py`: supervised instruction tuning with prompt-loss masking and resumable optimizer state.
+- `export_mobile.py`: exports the current checkpoint and matching Android tokenizer.
+- `data_schema.py` and `curriculum.py`: canonical instruction-data schema and topic validation.
 
-## Instruction tuning
+The Colab/Kaggle notebooks are legacy research utilities, not the canonical model-update process. The old release-upload helper is retired. Do not resume from historical Release assets or Actions artifacts.
 
-- `generate_instruction_dataset.py`: reproducibly generates 5,000 instruction records across five programming categories.
-- `finetune_instructions.py`: supervised fine-tuning with prompt-loss masking, a deterministic stratified validation split, and resumable SFT checkpoints.
-- `generate_instruction.py`: generates answers using the instruction format.
-- `nyxvault_sft.ipynb`: restores saved model artifacts from Google Drive, fetches current code from GitHub main, generates/validates the dataset, runs SFT, packages artifacts, and can publish the archive as a GitHub Release asset.
-- `publish_release_assets.py`: securely uploads an archive to a GitHub Release using `GITHUB_TOKEN` from the environment.
+## Training data
 
-## Data
-
-The canonical source datasets are:
-- `data/programming_seed.jsonl`
-- `data/code_projects_seed.jsonl`
-
-The instruction SFT corpus is generated from its source generator on Colab. Its generated copy, dataset report, tokenizer and model checkpoints are packed into the final artifact ZIP; the ZIP can be attached to a Release in this same repository.
+Validated instruction datasets are kept under `training/data/*.jsonl`. The canonical bundle preserves the combined, de-duplicated corpus so later training continues with earlier examples as well as newly committed records.
 
 ## Run checks
 
 ```bash
 python training/validate_data.py training/data/programming_seed.jsonl
-python training/validate_data.py training/data/code_projects_seed.jsonl --exec-tests
 python -m unittest discover -s training/tests -v
 ```
 
 Only run `--exec-tests` on trusted dataset code. The validator uses time and resource limits but is not a complete sandbox.
 
-## Storage policy
+## Storage rules
 
-Do not commit `.pt`, `.onnx`, `.npz`, local processed corpora, Colab output folders, or access tokens into ordinary Git commits. Keep the complete output folder on Google Drive during training and publish the final ZIP through GitHub Releases when ready.
+There is one model file in the visible repository root: `NYXVAULT_MODEL.zip`. It is tracked by Git LFS; the pointer file in a normal Git clone is not the full 200 MB archive. Use `git lfs pull` to download its actual contents.
+
+Every training run must use the previous `model.pt` from this archive as its resume checkpoint, preserve `base_step_600_backup.pt`, and replace the same archive in `main`. Never commit raw model binaries to ordinary Git history, create separate model directories, or publish separate checkpoints as workflow artifacts/releases.
