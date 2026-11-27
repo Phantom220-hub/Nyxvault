@@ -162,7 +162,6 @@ jobs:
           name: NYXVAULT-chat-python-SFT
           path: |
             artifacts/sft_checkpoints/sft_step_100.pt
-            artifacts/sft_checkpoints/best_sft.pt
             artifacts/sft_metrics.json
             artifacts/chat_and_python_basics.jsonl
             artifacts/nyxvault_chat_test.onnx
