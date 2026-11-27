@@ -1,20 +1,7 @@
-name: NYXVAULT Transformer smoke tests
+name: NYXVAULT training pipeline checks
 
 on:
-  push:
-    branches: [dev]
-    paths:
-      - "training/**"
-      - "data/knowledge.jsonl"
-      - "DATA_SOURCES.md"
-      - "TRAINING_GUIDE.md"
-  pull_request:
-    branches: [dev]
-    paths:
-      - "training/**"
-      - "data/knowledge.jsonl"
-      - "DATA_SOURCES.md"
-      - "TRAINING_GUIDE.md"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,25 +12,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install CPU test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install numpy tokenizers onnx onnxruntime onnxscript
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: Compile training scripts
         run: |
-          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py training/export_mobile.py training/test_mobile_export.py
-      - name: Test causal attention and gradients
-        run: python training/smoke_test.py
-      - name: Build programming-focused dataset
+          python -m py_compile training/model.py training/train.py training/prepare_data.py training/train_tokenizer.py training/evaluate.py training/smoke_test.py training/pipeline_smoke_test.py training/export_mobile.py training/test_mobile_export.py
+
+      - name: Validate original programming data
+        run: |
+          python training/validate_data.py training/data/programming_seed.jsonl
+          python training/validate_data.py training/data/code_projects_seed.jsonl --exec-tests
+
+      - name: Build the prepared coding corpus
         run: |
           mkdir -p /tmp/nyxvault-raw
-          cp training/programming_seed.jsonl /tmp/nyxvault-raw/
+          cp training/data/programming_seed.jsonl /tmp/nyxvault-raw/
+          cp training/data/code_projects_seed.jsonl /tmp/nyxvault-raw/
           python training/prepare_data.py --input /tmp/nyxvault-raw --knowledge data/knowledge.jsonl --out /tmp/nyxvault-data
           python training/train_tokenizer.py --input /tmp/nyxvault-data/train.txt --output /tmp/nyxvault-tokenizer.json --vocab-size 8000
+
+      - name: Test real-data CPU training and checkpoint resume
+        run: |
+          python training/pipeline_smoke_test.py --data /tmp/nyxvault-data --tokenizer /tmp/nyxvault-tokenizer.json --steps 3 --block-size 32
+
+      - name: Test model attention and gradients
+        run: python training/smoke_test.py
+
       - name: Verify Android ONNX and tokenizer export
         run: python training/test_mobile_export.py --tokenizer /tmp/nyxvault-tokenizer.json
