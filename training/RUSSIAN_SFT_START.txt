@@ -1,3 +1,1 @@
-Start Russian conversational SFT stage, from merged checkpoint sft_step_50. Do not overwrite earlier releases.
-
-Retry after parser fix.
+Russian SFT retry: robust nested conversation parsing, Russian-language filter, JSONL newline fix. Continue from merged sft_step_50.pt to cumulative step 300.
