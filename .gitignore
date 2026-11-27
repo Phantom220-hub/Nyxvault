@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Temporary training data
+training/data/raw/
+training/data/processed/
+training/data/reports/
+nyxvault-output/
+nyxvault-training-output.zip
+nyxvault-ai-artifacts.zip
+nyxvault-main.zip
+
+# Model checkpoints and exported weights belong in GitHub Releases,
+# not regular source commits.
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.onnx
+*.safetensors
+
+# Local tokenizer copies (the training notebook generates these)
+artifacts/tokenizer.json
+tokenizer_mobile.json
