@@ -88,7 +88,7 @@ SFT source files:
 
 The 5,000 records are template-authored parameter variations, not 5,000 separately human-reviewed tasks. The corpus is generated in Colab and is not duplicated as a large generated JSONL file in GitHub. The base checkpoint `step_600.pt` is read-only during SFT; SFT results are saved under `/content/nyxvault-output/sft_checkpoints`. Save `nyxvault-output` to Google Drive after every stage because Colab's `/content` storage is temporary.
 
-The base-training notebook is staged: its default run is the first 100 updates of the 5,000-step base schedule. Continue from the newest saved `step_N.pt` checkpoint before beginning SFT. The SFT notebook automatically selects the newest `step_*.pt` file in the base `checkpoints/` folder. It never uses or overwrites an SFT checkpoint as a base model.
+The base-training notebook is staged: its default run is the first 100 updates of the 5,000-step base schedule. The base Colab notebook mounts Google Drive, saves the complete `nyxvault-output` folder after each 100-step stage, and automatically resumes the newest checkpoint without re-downloading or re-tokenizing the corpus. The SFT notebook restores that same Drive folder and automatically selects the newest `step_*.pt` file in the base `checkpoints/` folder. It never uses or overwrites an SFT checkpoint as a base model.
 
 ## Complete repository map
 
