@@ -1,13 +1,18 @@
-# Central training-data directory
+# NYXVAULT training data
 
-This directory is the canonical home for NYXVAULT training input datasets and dataset-related artifacts.
+This folder contains the canonical, schema-validated JSONL datasets used by the project.
 
-- `programming_seed.jsonl`: 103-record starter corpus (89 legacy Q&A and 14 structured records).
-- `code_projects_seed.jsonl`: 18 original structured coding tasks, including a tested calculator, Python algorithms, Godot 4 gameplay systems, Kotlin architecture and a JavaScript Canvas game.
-- `raw/`: collected, user-owned, or properly licensed source material before preparation.
-- `processed/`: train/validation text and preparation manifest.
-- `reports/`: dataset-validation reports.
+## Canonical project dataset
 
-Keep model checkpoints and export binaries outside this directory. Do not mix generated model weights with source datasets. Keep attribution/license metadata alongside the source data it describes.
+- `code_projects_seed.jsonl`: programming and project examples across Python, GDScript, Kotlin, and JavaScript. The Godot 4 examples from the November 27, 2026 SFT batch have been merged into this file.
+- `programming_seed.jsonl`: general programming examples (includes legacy question/answer entries and structured records).
 
-The CPU smoke test uses synthetic tokens and intentionally does not read or alter these datasets.
+New structured project examples should be validated against `training/data_schema.py` and `training/curriculum.py`, then added to `code_projects_seed.jsonl` when they are project/code examples.
+
+Validation:
+
+```bash
+python training/validate_data.py training/data/code_projects_seed.jsonl --exec-tests
+```
+
+Only run executable checks on trusted code. GDScript examples are schema-validated here; execute them in Godot separately before treating them as runtime-verified.
