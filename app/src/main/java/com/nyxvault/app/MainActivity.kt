@@ -68,6 +68,11 @@ class MainActivity : Activity() {
         window.navigationBarColor = bg
         knowledgeFile = File(filesDir, "knowledge.jsonl")
         brain = NyxvaultBrain()
+        try {
+            installBundledModel()
+        } catch (error: Exception) {
+            android.util.Log.e("NYXVAULT", "Bundled model installation failed", error)
+        }
         reloadTransformer(notify = false)
         memoryStore = MemoryStore(this)
         conversationMemory = ConversationMemory(this)
@@ -212,17 +217,25 @@ class MainActivity : Activity() {
         val context = conversationMemory.recent().takeLast(6).joinToString("\n") { row ->
             (if (row.first) "Пользователь: " else "NYXVAULT: ") + row.second
         }
-        var local = findAnswer(effectiveQuestion, context + "\n" + relevantMemory.joinToString("\n"))
-        if (relevantMemory.isNotEmpty()) {
-            local += "\n\nКОНТЕКСТ ИЗ ТВОЕЙ ПАМЯТИ:\n" + relevantMemory.joinToString("\n")
-        }
-        if (!webEnabled) {
-            addMessage(local, false)
-            return
-        }
         busy = true
-        status.text = "● NYXVAULT THINKING  •  ищу свежие источники..."
+        status.text = if (webEnabled) {
+            "● NYXVAULT THINKING  •  ищу свежие источники..."
+        } else {
+            "● NYXVAULT THINKING  •  генерирую ответ локально..."
+        }
         Thread {
+            var local = findAnswer(effectiveQuestion, context + "\n" + relevantMemory.joinToString("\n"))
+            if (relevantMemory.isNotEmpty()) {
+                local += "\n\nКОНТЕКСТ ИЗ ТВОЕЙ ПАМЯТИ:\n" + relevantMemory.joinToString("\n")
+            }
+            if (!webEnabled) {
+                runOnUiThread {
+                    addMessage(local, false)
+                    busy = false
+                    updateStatus()
+                }
+                return@Thread
+            }
             val searchQuery = when (currentMode) {
                 "Учитель" -> "$effectiveQuestion пошаговое объяснение учебный материал"
                 "Разработчик" -> "$effectiveQuestion programming documentation code examples"
@@ -549,6 +562,18 @@ class MainActivity : Activity() {
             type = mimeType
         }
         startActivityForResult(intent, requestCode)
+    }
+
+    private fun installBundledModel() {
+        val directory = File(filesDir, "nyxvault_model").apply { mkdirs() }
+        listOf("nyxvault.onnx", "tokenizer_mobile.json").forEach { name ->
+            val target = File(directory, name)
+            if (!target.isFile || target.length() == 0L) {
+                assets.open("nyxvault_model/$name").use { source ->
+                    target.outputStream().use { destination -> source.copyTo(destination) }
+                }
+            }
+        }
     }
 
     private fun reloadTransformer(notify: Boolean) {
