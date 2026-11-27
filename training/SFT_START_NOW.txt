@@ -1,0 +1,1 @@
+One-time trigger for the isolated NYXVAULT Godot SFT pilot workflow. Source checkpoint and raw dataset remain unchanged.
