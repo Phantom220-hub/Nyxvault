@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-heads", type=int, default=8)
     parser.add_argument("--n-layers", type=int, default=6)
     parser.add_argument("--grad-accum-steps", type=int, default=4)
-    parser.add_argument("--block-size", type=int, default=256)
+    parser.add_argument("--block-size", type=int, default=512)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--min-lr-ratio", type=float, default=0.1)
     parser.add_argument("--warmup-steps", type=int, default=200)
