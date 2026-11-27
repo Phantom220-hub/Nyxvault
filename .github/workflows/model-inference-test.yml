@@ -63,7 +63,7 @@ jobs:
 
       - name: Retrieve the completed Russian SFT checkpoint and dataset
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -263,10 +263,12 @@ jobs:
           OMP_NUM_THREADS: "2"
         run: |
           set -euo pipefail
-          python training/export_mobile.py \
+          cd training
+          python export_mobile.py \
             --checkpoint /tmp/nyx-package/checkpoints/sft_step_100.pt \
             --tokenizer /tmp/nyx-source/tokenizer.json \
             --out /tmp/nyx-package/model.onnx
+          cd ..
           python - <<'PY'
           import json, math, random
           from pathlib import Path
@@ -386,7 +388,7 @@ jobs:
 
       - name: Store the single bundle in main using Git LFS
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
