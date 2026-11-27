@@ -7,8 +7,7 @@ All model source code and training data live in this repository. The current mod
 - `NYXVAULT_MODEL.zip` contains the current `model.pt`, matching tokenizer, Android ONNX export, combined training corpus, manifest, inference checks and immutable `base_step_600_backup.pt`.
 - `training/finetune_instructions.py` performs resumable SFT and restores optimizer/RNG state from the canonical checkpoint.
 - `.github/workflows/model-inference-test.yml` is the only active model-training workflow. It reads the root bundle from Git LFS, adds validated data from `training/data/*.jsonl`, resumes directly from the bundle's `model.pt`, exports and checks ONNX inference, then updates the same `NYXVAULT_MODEL.zip` in `main`.
-- Push new JSONL training examples to `training/data/`, or use the workflow's manual dispatch. Do not start separate SFT pipelines or publish independent checkpoint artifacts/releases.
-- `training/RUSSIAN_SFT_START.txt` is the manual push trigger. It starts the same canonical pipeline; it does not create a separate model.
+- Push new JSONL training examples to `training/data/`, or start the workflow with GitHub Actions `workflow_dispatch`. Do not start separate SFT pipelines or publish independent checkpoint artifacts/releases.
 
 ## Source code
 
