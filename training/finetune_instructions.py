@@ -55,8 +55,7 @@ def make_samples(path: Path, tokenizer, block_size: int, seed: int):
                 joined = prompt_ids + answer_ids
                 input_ids, labels = joined[:-1], joined[1:]
                 labels[:max(0, len(prompt_ids) - 1)] = [-100] * max(0, len(prompt_ids) - 1)
-                input_ids += [pad_id] * (block_size - len(input_ids))
-                labels += [-100] * (block_size - len(labels))
+                # Keep sequences compact; batch() pads dynamically.
                 sample = (input_ids, labels)
                 category = (rec.get("tags") or ["uncategorized"])[0]
                 # Hash-based stratification prevents a sorted dataset from putting
@@ -67,6 +66,16 @@ def make_samples(path: Path, tokenizer, block_size: int, seed: int):
                 errors.append(f"line {line_no}: {exc}")
     if errors:
         raise ValueError("SFT dataset validation failed:\n" + "\n".join(errors[:25]))
+    # Ensure every category with at least two examples has train and validation data.
+    for category, group in buckets.items():
+        total = len(group["train"]) + len(group["valid"])
+        if total < 2:
+            raise ValueError(f"Category {category!r} needs at least two examples.")
+        if not group["valid"]:
+            group["valid"].append(group["train"].pop())
+        if not group["train"]:
+            group["train"].append(group["valid"].pop())
+
     train = [sample for group in buckets.values() for sample in group["train"]]
     valid = [sample for group in buckets.values() for sample in group["valid"]]
     if not train or not valid:
@@ -76,14 +85,24 @@ def make_samples(path: Path, tokenizer, block_size: int, seed: int):
     return train, valid, counts, pad_id
 
 
-def batch(samples, indices, device):
-    x = torch.tensor([samples[i][0] for i in indices], dtype=torch.long, device=device)
-    y = torch.tensor([samples[i][1] for i in indices], dtype=torch.long, device=device)
-    return x, y
+def batch(samples, indices, device, pad_id):
+    # Pad only to the longest sample in this batch, not to the full 512-token
+    # context. Right padding is safe with causal attention; -100 masks its loss.
+    max_len = max(len(samples[i][0]) for i in indices)
+    xs, ys = [], []
+    for i in indices:
+        x, y = samples[i]
+        missing = max_len - len(x)
+        xs.append(x + [pad_id] * missing)
+        ys.append(y + [-100] * missing)
+    return (
+        torch.tensor(xs, dtype=torch.long, device=device),
+        torch.tensor(ys, dtype=torch.long, device=device),
+    )
 
 
 @torch.no_grad()
-def evaluate(model, samples, device, batch_size, limit=200):
+def evaluate(model, samples, device, batch_size, pad_id, limit=200):
     model.eval()
     chosen = samples
     if len(chosen) > limit:
@@ -92,7 +111,7 @@ def evaluate(model, samples, device, batch_size, limit=200):
     total_loss, total_tokens = 0.0, 0
     for start in range(0, len(chosen), batch_size):
         idx = list(range(start, min(start + batch_size, len(chosen))))
-        x, y = batch(chosen, idx, device)
+        x, y = batch(chosen, idx, device, pad_id)
         _, loss = model(x, y)
         count = int((y != -100).sum().item())
         total_loss += float(loss.item()) * count
@@ -126,6 +145,7 @@ def main():
     p.add_argument("--save-every", type=int, default=100)
     p.add_argument("--seed", type=int, default=2026)
     p.add_argument("--allow-cpu", action="store_true", help="allow slow CPU training when CUDA is unavailable")
+    p.add_argument("--reset-best-loss", action="store_true", help="reset best validation loss when the validation dataset changes")
     args = p.parse_args()
     if args.steps < 1 or args.max_steps < 1 or args.max_steps > args.steps:
         p.error("steps/max-steps must be positive and max-steps <= steps")
@@ -176,7 +196,7 @@ def main():
         optimizer.load_state_dict(loaded["optimizer"])
         if "scaler" in loaded: scaler.load_state_dict(loaded["scaler"])
         start_step = int(loaded["step"]) + 1
-        best_loss = float(loaded.get("best_validation_loss", best_loss))
+        best_loss = float("inf") if args.reset_best_loss else float(loaded.get("best_validation_loss", best_loss))
         if "sample_rng_state" in loaded: sampler.setstate(loaded["sample_rng_state"])
         if "python_rng" in loaded: random.setstate(loaded["python_rng"])
         if "numpy_rng" in loaded: np.random.set_state(loaded["numpy_rng"])
@@ -208,7 +228,7 @@ def main():
         accum_loss = 0.0
         for _ in range(args.grad_accum_steps):
             indices = [sampler.randrange(len(train_samples)) for _ in range(args.batch_size)]
-            x, y = batch(train_samples, indices, device)
+            x, y = batch(train_samples, indices, device, _pad_id)
             with autocast_ctx(): _, loss = model(x, y)
             if not torch.isfinite(loss): raise RuntimeError(f"non-finite SFT loss at step {step + 1}")
             scaler.scale(loss / args.grad_accum_steps).backward()
@@ -223,7 +243,7 @@ def main():
             print(f"sft step {step + 1}/{args.steps} train_loss={accum_loss / args.grad_accum_steps:.4f} grad_norm={float(grad_norm):.4f}", flush=True)
 
         if (step + 1) % args.eval_every == 0 or step + 1 == end_step:
-            val_loss = evaluate(model, valid_samples, device, args.batch_size)
+            val_loss = evaluate(model, valid_samples, device, args.batch_size, _pad_id)
             print(f"sft validation step={step + 1} answer_loss={val_loss:.5f}", flush=True)
             if val_loss < best_loss:
                 best_loss = val_loss
