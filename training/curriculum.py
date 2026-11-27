@@ -36,11 +36,11 @@ LEVELS: Tuple[Level, ...] = (
         id=1,
         slug="foundations",
         name="Основы",
-        goal="Синтаксис, базовые типы, ввод-вывод, ветвления, циклы, простые функции, чтение ошибок.",
+        goal="Синтаксис, базовые типы, ввод-вывод, ветвления, циклы, простые функции, чтение ошибок и базовое общение на русском.",
         token_share=0.10,
         min_examples=25,
         target_examples=300,
-        focus_languages=("python",),
+        focus_languages=("python", "ru"),
         topics=(
             "variables-and-types",
             "operators-and-expressions",
@@ -51,6 +51,7 @@ LEVELS: Tuple[Level, ...] = (
             "strings-basics",
             "lists-and-indexing",
             "reading-error-messages",
+            "general-conversation",
         ),
     ),
     Level(
