@@ -33,7 +33,7 @@ object ProgrammingPrompt {
 
         if (projectRequest) {
             level = 8
-            topic = if (text.contains("godot") || text.contains("gdscript")) {
+            topic = if (language == "gdscript" || language == "javascript") {
                 "complete-programs"
             } else {
                 "multi-file-projects"
