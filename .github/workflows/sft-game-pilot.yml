@@ -1,0 +1,208 @@
+name: NYXVAULT Godot SFT pilot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/SFT_START_NOW.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sft-game-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download base checkpoint bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" \
+            -o /tmp/NYXVAULT_ALL_FILES.zip
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+
+          archive = Path("/tmp/NYXVAULT_ALL_FILES.zip")
+          output = Path("/tmp/nyxvault-base")
+          output.mkdir(parents=True, exist_ok=True)
+          with ZipFile(archive) as zf:
+              members = zf.namelist()
+              checkpoint = [n for n in members if Path(n).name == "step_600.pt"]
+              tokenizer = [n for n in members if Path(n).name == "tokenizer.json"]
+              if len(checkpoint) != 1:
+                  raise SystemExit(f"Expected exactly one step_600.pt, found: {checkpoint}")
+              if len(tokenizer) != 1:
+                  raise SystemExit(f"Expected exactly one tokenizer.json, found: {tokenizer}")
+              for member, name in ((checkpoint[0], "step_600.pt"), (tokenizer[0], "tokenizer.json")):
+                  with zf.open(member) as src, (output / name).open("wb") as dst:
+                      shutil.copyfileobj(src, dst)
+                  print(f"Extracted {member} -> {output / name}")
+          archive.unlink()
+          PY
+
+      - name: Install CPU training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Prepare a context-safe SFT subset
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python - <<'PY'
+          import hashlib, json, re
+          from pathlib import Path
+          from tokenizers import Tokenizer
+
+          source = Path("training_data/raw/nyxvault_game_training_part1_fixed.jsonl")
+          tokenizer = Tokenizer.from_file("/tmp/nyxvault-base/tokenizer.json")
+          eos_id = tokenizer.token_to_id("[EOS]")
+          pad_id = tokenizer.token_to_id("[PAD]")
+          if eos_id is None or pad_id is None:
+              raise SystemExit("Tokenizer is missing [EOS] or [PAD].")
+
+          rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+          prepared, shortened, skipped = [], [], []
+          for row in rows:
+              answer = row["output"]
+              answer_tokens = len(tokenizer.encode(answer).ids) + 1
+              if answer_tokens > 504:
+                  match = re.search(r"```gdscript\s*([\s\S]*?)\n```", answer)
+                  if not match:
+                      skipped.append({"id": row["id"], "reason": "answer over 504 tokens; no code block"})
+                      continue
+                  answer = "Полный код решения:\n```gdscript\n" + match.group(1).strip() + "\n```"
+                  answer_tokens = len(tokenizer.encode(answer).ids) + 1
+                  if answer_tokens > 504:
+                      skipped.append({"id": row["id"], "reason": f"code-only answer still has {answer_tokens} tokens"})
+                      continue
+                  row = dict(row)
+                  row["output"] = answer
+                  shortened.append(row["id"])
+              prepared.append(row)
+
+          if len(prepared) < 2:
+              raise SystemExit(f"Only {len(prepared)} examples fit the 512-token context. Cannot create train/validation split.")
+
+          # Make exactly one short sample validation and keep the remaining samples in training.
+          def bucket(identifier):
+              return int(hashlib.sha256(identifier.encode()).hexdigest()[:8], 16) % 10
+          prepared.sort(key=lambda row: len(tokenizer.encode(row["output"]).ids))
+          val_row = prepared[0]
+          serial = 1
+          while True:
+              candidate = f"nyxgame_val_{serial:04d}"
+              if bucket(candidate) == 0:
+                  val_row["id"] = candidate
+                  break
+              serial += 1
+          serial = 1
+          for row in prepared[1:]:
+              while True:
+                  candidate = f"nyxgame_train_{serial:04d}"
+                  serial += 1
+                  if bucket(candidate) != 0:
+                      row["id"] = candidate
+                      break
+
+          out = Path("/tmp/nyxvault-sft-game.jsonl")
+          out.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in prepared), encoding="utf-8")
+          report = {
+              "source_records": len(rows),
+              "usable_records": len(prepared),
+              "validation_records": 1,
+              "training_records": len(prepared) - 1,
+              "shortened_to_code_only": shortened,
+              "skipped": skipped,
+              "max_answer_tokens": max(len(tokenizer.encode(row["output"]).ids) + 1 for row in prepared),
+              "context_limit": 512
+          }
+          Path("/tmp/sft-preparation-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Run 25 CPU SFT optimizer steps
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python training/finetune_instructions.py \
+            --data /tmp/nyxvault-sft-game.jsonl \
+            --tokenizer /tmp/nyxvault-base/tokenizer.json \
+            --init-from /tmp/nyxvault-base/step_600.pt \
+            --steps 25 --max-steps 25 \
+            --batch-size 1 --grad-accum-steps 1 \
+            --block-size 512 --lr 2e-5 --warmup-steps 2 \
+            --eval-every 5 --save-every 25 \
+            --allow-cpu --out artifacts/sft_checkpoints
+
+      - name: Verify that model weights changed
+        run: |
+          python - <<'PY'
+          import json, torch
+          from pathlib import Path
+          base = torch.load("/tmp/nyxvault-base/step_600.pt", map_location="cpu", weights_only=False)
+          tuned_path = Path("artifacts/sft_checkpoints/sft_step_25.pt")
+          best_path = Path("artifacts/sft_checkpoints/best_sft.pt")
+          if not tuned_path.is_file() or not best_path.is_file():
+              raise SystemExit("Expected SFT checkpoint files are missing.")
+          tuned = torch.load(tuned_path, map_location="cpu", weights_only=False)
+          changed, max_delta = 0, 0.0
+          for name, old in base["model"].items():
+              delta = (tuned["model"][name].float() - old.float()).abs().max().item()
+              if delta > 0:
+                  changed += 1
+                  max_delta = max(max_delta, delta)
+          if changed == 0:
+              raise SystemExit("No model parameters changed; SFT did not update weights.")
+          report = json.loads(Path("/tmp/sft-preparation-report.json").read_text(encoding="utf-8"))
+          report.update({
+              "sft_steps_completed": int(tuned["step"]) + 1,
+              "changed_parameter_tensors": changed,
+              "max_absolute_parameter_delta": max_delta,
+              "best_validation_loss": float(tuned.get("best_validation_loss", float("nan")))
+          })
+          Path("artifacts/sft_metrics.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          Path("artifacts/sft_game_training_data.jsonl").write_text(Path("/tmp/nyxvault-sft-game.jsonl").read_text(encoding="utf-8"), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload SFT files as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nyxvault-godot-sft-pilot
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish SFT checkpoints as a GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nyxvault-sft-godot-pilot-2026-11-27
+          name: NYXVAULT Godot SFT pilot (25 CPU steps)
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/sft_checkpoints/sft_step_25.pt
+            artifacts/sft_checkpoints/best_sft.pt
+            artifacts/sft_metrics.json
+            artifacts/sft_game_training_data.jsonl
+          body: |
+            Experimental CPU-only SFT pilot from base checkpoint step_600.
+            Dataset: uploaded Godot 4 JSONL examples, filtered to fit the model's 512-token context.
+            This is a small pilot, not a claim of general programming competence.
