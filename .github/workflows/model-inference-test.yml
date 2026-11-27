@@ -1,111 +1,399 @@
-name: NYXVAULT real model inference test
+name: NYXVAULT unified model consolidation
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - ".github/workflows/model-inference-test.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 jobs:
-  inference:
+  consolidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 120
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Download latest chat SFT checkpoint and matching tokenizer
+      - name: Download every successful SFT lineage and the base backup
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/nyx-base /tmp/nyx-model
-          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/nyx-base.zip
-          unzip -q /tmp/nyx-base.zip -d /tmp/nyx-base
-          TOKENIZER="$(find /tmp/nyx-base -type f -path '*/artifacts/tokenizer.json' -print -quit)"
-          if [ -z "$TOKENIZER" ]; then TOKENIZER="$(find /tmp/nyx-base -type f -name tokenizer.json -print -quit)"; fi
-          test -n "$TOKENIZER"
-          curl -fL --retry 3 "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-chat-basics-2026-11-27/sft_step_100.pt" -o /tmp/nyx-model/sft_step_100.pt
-          echo "TOKENIZER_PATH=$TOKENIZER" >> "$GITHUB_ENV"
+          mkdir -p /tmp/nyx-source /tmp/nyx-russian /tmp/nyx-package
+          ROOT="https://github.com/Phantom220-hub/Nyxvault/releases/download"
+          curl -fL --retry 4 "$ROOT/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" -o /tmp/nyx-base-all.zip
+          curl -fL --retry 4 "$ROOT/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" -o /tmp/nyx-source/sft_step_50.pt
+          curl -fL --retry 4 "$ROOT/nyxvault-sft-chat-basics-2026-11-27/sft_step_100.pt" -o /tmp/nyx-source/sft_step_100.pt
+          curl -fL --retry 4 "$ROOT/nyxvault-sft-chat-python-v2-2026-11-27/sft_step_350.pt" -o /tmp/nyx-source/sft_step_350.pt
+          curl -fL --retry 4 "$ROOT/nyxvault-sft-merged-projects-2026-11-27/sft_game_training_data.jsonl" -o /tmp/nyx-source/game_training_data.jsonl
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+          zpath=Path("/tmp/nyx-base-all.zip")
+          with ZipFile(zpath) as z:
+              names=z.namelist()
+              base=[n for n in names if Path(n).name=="step_600.pt"]
+              toks=[n for n in names if Path(n).name=="tokenizer.json"]
+              if len(base)!=1 or len(toks)!=1:
+                  raise SystemExit(f"Expected one step_600.pt and tokenizer.json; got {base}, {toks}")
+              for member,target in ((base[0],"/tmp/nyx-source/base_step_600.pt"),(toks[0],"/tmp/nyx-source/tokenizer.json")):
+                  with z.open(member) as src, open(target,"wb") as dst:
+                      shutil.copyfileobj(src,dst)
+          print("Extracted immutable step_600 backup and tokenizer.")
+          PY
+          rm -f /tmp/nyx-base-all.zip
+          test -s /tmp/nyx-source/base_step_600.pt
+          test -s /tmp/nyx-source/tokenizer.json
+          test -s /tmp/nyx-source/sft_step_50.pt
+          test -s /tmp/nyx-source/sft_step_100.pt
+          test -s /tmp/nyx-source/sft_step_350.pt
 
-      - name: Install CPU inference dependencies
+      - name: Retrieve the completed Russian SFT checkpoint and dataset
+        env:
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 46042279176 --repo Phantom220-hub/Nyxvault --name NYXVAULT-Russian-SFT --dir /tmp/nyx-russian
+          RUSSIAN_CKPT="$(find /tmp/nyx-russian -type f -name sft_step_300.pt -print -quit)"
+          RUSSIAN_DATA="$(find /tmp/nyx-russian -type f -name russian_chat_prepared.jsonl -print -quit)"
+          RUSSIAN_METRICS="$(find /tmp/nyx-russian -type f -name russian_sft_metrics.json -print -quit)"
+          test -n "$RUSSIAN_CKPT" && test -n "$RUSSIAN_DATA" && test -n "$RUSSIAN_METRICS"
+          cp "$RUSSIAN_CKPT" /tmp/nyx-source/sft_step_300_russian.pt
+          cp "$RUSSIAN_DATA" /tmp/nyx-source/russian_chat_prepared.jsonl
+          cp "$RUSSIAN_METRICS" /tmp/nyx-source/russian_sft_metrics.json
+          test -s /tmp/nyx-source/sft_step_300_russian.pt
+          test -s /tmp/nyx-source/russian_chat_prepared.jsonl
+
+      - name: Install model training and export dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install numpy tokenizers onnx onnxruntime onnxscript
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Export checkpoint to ONNX
+      - name: Verify shared ancestry, merge all separate weight branches and build one corpus
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
         run: |
-          mkdir -p /tmp/nyx-mobile
-          cd training
-          python export_mobile.py --checkpoint /tmp/nyx-model/sft_step_100.pt --tokenizer "$TOKENIZER_PATH" --out /tmp/nyx-mobile/nyxvault.onnx
-          cp "$TOKENIZER_PATH" /tmp/nyx-mobile/tokenizer.json
+          python - <<'PY'
+          import hashlib, json, re
+          from collections import Counter
+          from pathlib import Path
+          import torch
+          from tokenizers import Tokenizer
+          from training.data_schema import normalize_record, validate_record
 
-      - name: Ask NYXVAULT using the same top-k sampling as Android
+          root=Path("/tmp/nyx-source")
+          base=torch.load(root/"sft_step_50.pt",map_location="cpu",weights_only=False)
+          sources={
+              "chat_basics":torch.load(root/"sft_step_100.pt",map_location="cpu",weights_only=False),
+              "chat_python_v2":torch.load(root/"sft_step_350.pt",map_location="cpu",weights_only=False),
+              "russian_conversation":torch.load(root/"sft_step_300_russian.pt",map_location="cpu",weights_only=False),
+          }
+          expected_steps={"chat_basics":100,"chat_python_v2":350,"russian_conversation":300}
+          for name,ckpt in sources.items():
+              if ckpt.get("config")!=base.get("config") or ckpt.get("vocab_size")!=base.get("vocab_size"):
+                  raise SystemExit(f"{name}: incompatible model config/vocabulary")
+              if set(ckpt["model"])!=set(base["model"]):
+                  raise SystemExit(f"{name}: state-dict parameter names differ")
+              if int(ckpt.get("step",-1))+1!=expected_steps[name]:
+                  raise SystemExit(f"{name}: unexpected checkpoint step {ckpt.get('step')}")
+              for key in base["model"]:
+                  if ckpt["model"][key].shape!=base["model"][key].shape:
+                      raise SystemExit(f"{name}: tensor shape mismatch at {key}")
+
+          metrics=json.loads((root/"russian_sft_metrics.json").read_text(encoding="utf-8"))
+          if metrics.get("starting_checkpoint")!="sft_step_50.pt" or metrics.get("checkpoint_step")!=300:
+              raise SystemExit(f"Russian lineage mismatch: {metrics}")
+
+          # The three branches share sft_step_50.pt as their exact parent.
+          # Merge their task vectors by averaging the deltas from that common parent.
+          merged={}
+          delta_norms={}
+          for key,reference in base["model"].items():
+              if torch.is_floating_point(reference):
+                  ref=reference.detach().float()
+                  deltas=[(sources[name]["model"][key].detach().float()-ref) for name in sources]
+                  value=ref+sum(deltas)/len(deltas)
+                  if not torch.isfinite(value).all():
+                      raise SystemExit(f"Non-finite merged tensor: {key}")
+                  merged[key]=value.to(dtype=reference.dtype)
+                  delta_norms[key]=[float(torch.linalg.vector_norm(d).item()) for d in deltas]
+              else:
+                  merged[key]=reference.detach().clone()
+          merged_path=Path("/tmp/nyx-source/merged_initial.pt")
+          torch.save({
+              "model":merged,
+              "config":base["config"],
+              "vocab_size":int(base["vocab_size"]),
+              "step":-1,
+              "phase":"merged_sft_task_vectors",
+              "base_checkpoint":"shared sft_step_50.pt",
+              "merge_sources":["sft_step_100.pt","sft_step_350.pt","sft_step_300.pt"],
+              "merge_method":"equal-weight average of task deltas from the shared sft_step_50 parent",
+          },merged_path)
+          del merged,base,sources
+          print("Merged three separately trained branches into one compatible state dict.")
+
+          tok=Tokenizer.from_file(str(root/"tokenizer.json"))
+          sources_data=[
+              ("programming","training/data/programming_seed.jsonl","programming"),
+              ("projects","training/data/code_projects_seed.jsonl","projects"),
+              ("chat","training/data/chat_and_python_basics.jsonl","chat"),
+              ("projects","training/data/chat_python_projects_v2.jsonl","projects"),
+              ("projects",str(root/"game_training_data.jsonl"),"game"),
+              ("russian",str(root/"russian_chat_prepared.jsonl"),"russian"),
+          ]
+          seen_tasks=set()
+          seen_ids=set()
+          prepared=[]
+          counts=Counter()
+          rejected=Counter()
+          for category,path,label in sources_data:
+              p=Path(path)
+              if not p.is_file():
+                  raise SystemExit(f"Missing training source: {p}")
+              for line_no,line in enumerate(p.read_text(encoding="utf-8").splitlines(),1):
+                  if not line.strip(): continue
+                  try:
+                      rec=normalize_record(json.loads(line))
+                      if not isinstance(rec,dict): raise ValueError("record is not an object")
+                      issues=[x for x in validate_record(rec) if x.severity=="error" or x.code=="W010"]
+                      if issues: raise ValueError("; ".join(x.message for x in issues[:2]))
+                      instruction=rec["instruction"]
+                      input_text=rec.get("input","")
+                      task=(instruction,input_text)
+                      if task in seen_tasks:
+                          rejected[label+"_duplicate"]+=1
+                          continue
+                      if len(tok.encode(rec["output"]).ids)+1>504:
+                          rejected[label+"_too_long"]+=1
+                          continue
+                      old_id=str(rec["id"])
+                      new_id=f"{label}_{old_id}"
+                      if len(new_id)>64 or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,63}",new_id):
+                          new_id=f"{label}_{hashlib.sha1(old_id.encode()).hexdigest()[:20]}"
+                      if new_id in seen_ids:
+                          rejected[label+"_duplicate_id"]+=1
+                          continue
+                      rec["id"]=new_id
+                      rec["tags"]=[f"merge_{category}"]
+                      rec["source"]=f"NYXVAULT unified corpus: {label}; original={rec.get('source','')}"
+                      seen_tasks.add(task); seen_ids.add(new_id)
+                      prepared.append(rec); counts[label]+=1
+                  except Exception as exc:
+                      rejected[label+"_invalid"]+=1
+                      if rejected[label+"_invalid"]<=3:
+                          print(f"Skipped {label} line {line_no}: {exc}")
+          category_counts=Counter((r["tags"] or [""])[0] for r in prepared)
+          if any(n<2 for n in category_counts.values()):
+              for r in prepared:
+                  if category_counts[r["tags"][0]]<2:
+                      r["tags"]=["merge_projects"]
+              category_counts=Counter((r["tags"] or [""])[0] for r in prepared)
+          if any(n<2 for n in category_counts.values()):
+              raise SystemExit(f"Dataset categories need at least two records: {category_counts}")
+          out=Path("/tmp/nyx-source/unified_training_corpus.jsonl")
+          out.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in prepared),encoding="utf-8")
+          if len(prepared)<500:
+              raise SystemExit(f"Unified corpus too small: {len(prepared)} examples")
+          report={
+              "total_records":len(prepared),
+              "by_source":dict(counts),
+              "by_category":dict(category_counts),
+              "rejected":dict(rejected),
+              "sources":[p for _,p,_ in sources_data],
+              "unique_task_count":len(seen_tasks),
+              "tokenizer_vocab_size":tok.get_vocab_size(),
+          }
+          Path("/tmp/nyx-source/corpus_report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Validate merged checkpoint and combined dataset before training
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
         run: |
-          cat > /tmp/run_inference.py <<'PY'
+          python - <<'PY'
+          from pathlib import Path
+          import json, torch
+          from tokenizers import Tokenizer
+          from training.finetune_instructions import make_samples
+          tokenizer=Tokenizer.from_file("/tmp/nyx-source/tokenizer.json")
+          train,valid,groups,_=make_samples(Path("/tmp/nyx-source/unified_training_corpus.jsonl"),tokenizer,512,2026)
+          model=torch.load("/tmp/nyx-source/merged_initial.pt",map_location="cpu",weights_only=False)
+          if len(train)<300 or len(valid)<50:
+              raise SystemExit(f"Too few valid examples: train={len(train)}, validation={len(valid)}")
+          print(json.dumps({"train":len(train),"validation":len(valid),"groups":groups,"parameters":sum(x.numel() for x in model["model"].values())},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Reconcile all skills with joint SFT on the full merged corpus
+        env:
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          python training/finetune_instructions.py \
+            --data /tmp/nyx-source/unified_training_corpus.jsonl \
+            --tokenizer /tmp/nyx-source/tokenizer.json \
+            --init-from /tmp/nyx-source/merged_initial.pt \
+            --steps 100 --max-steps 100 \
+            --batch-size 2 --grad-accum-steps 2 \
+            --block-size 512 --lr 1e-5 --warmup-steps 5 \
+            --eval-every 20 --save-every 100 \
+            --reset-best-loss --allow-cpu \
+            --out /tmp/nyx-package/checkpoints
+
+      - name: Export the one consolidated model and test real responses
+        env:
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          python training/export_mobile.py \
+            --checkpoint /tmp/nyx-package/checkpoints/sft_step_100.pt \
+            --tokenizer /tmp/nyx-source/tokenizer.json \
+            --out /tmp/nyx-package/model.onnx
+          python - <<'PY'
           import json, math, random
           from pathlib import Path
           import numpy as np
           import onnxruntime as ort
           from tokenizers import Tokenizer
-
-          tokenizer = Tokenizer.from_file("/tmp/nyx-mobile/tokenizer.json")
-          session = ort.InferenceSession("/tmp/nyx-mobile/nyxvault.onnx", providers=["CPUExecutionProvider"])
-          eos = tokenizer.token_to_id("[EOS]")
-          if eos is None:
-              raise RuntimeError("Tokenizer is missing [EOS]")
-
-          cases = [
-              ("greeting", "### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: python\n### Task\nПривет\n### Solution\n"),
-              ("calculator", "### Level: 1\n### Topic: functions-basics\n### Task type: write_code\n### Language: python\n### Task\nСделай простой калькулятор на Python\n### Solution\n")
+          tok=Tokenizer.from_file("/tmp/nyx-source/tokenizer.json")
+          session=ort.InferenceSession("/tmp/nyx-package/model.onnx",providers=["CPUExecutionProvider"])
+          eos=tok.token_to_id("[EOS]")
+          cases=[
+              ("greeting","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: ru\n### Task\nПривет\n### Solution\n"),
+              ("tokenizer","### Level: 1\n### Topic: input-output\n### Task type: explain\n### Language: ru\n### Task\nЧто делает токенизатор?\n### Solution\n"),
+              ("calculator","### Level: 1\n### Topic: functions-basics\n### Task type: write_code\n### Language: python\n### Task\nСделай простой калькулятор на Python\n### Solution\n"),
+              ("godot","### Level: 1\n### Topic: game-development\n### Task type: explain\n### Language: gdscript\n### Task\nКак создать движение персонажа в Godot 4?\n### Solution\n"),
           ]
-
-          results = []
-          for name, prompt in cases:
-              ids = tokenizer.encode(prompt).ids[-512:]
-              generated = []
-              rng = random.Random(20261127)
-              for _ in range(220):
-                  logits = session.run(["logits"], {"input_ids": np.array([ids[-512:]], dtype=np.int64)})[0][0, -1]
-                  top_k = min(12, len(logits))
-                  candidates = np.argpartition(logits, -top_k)[-top_k:]
-                  candidates = sorted(candidates.tolist(), key=lambda idx: float(logits[idx]), reverse=True)
-                  temperature = 0.8
-                  max_logit = max(float(logits[idx]) / temperature for idx in candidates)
-                  weights = [math.exp(float(logits[idx]) / temperature - max_logit) for idx in candidates]
-                  choice = rng.random() * sum(weights)
-                  next_id = candidates[-1]
-                  for idx, weight in zip(candidates, weights):
-                      choice -= weight
-                      if choice <= 0:
-                          next_id = idx
+          results=[]
+          for name,prompt in cases:
+              ids=tok.encode(prompt).ids[-512:]
+              generated=[]
+              rng=random.Random(20261127)
+              for _ in range(160):
+                  logits=session.run(["logits"],{"input_ids":np.array([ids[-512:]],dtype=np.int64)})[0][0,-1]
+                  k=min(12,len(logits))
+                  candidates=np.argpartition(logits,-k)[-k:]
+                  candidates=sorted(candidates.tolist(),key=lambda i:float(logits[i]),reverse=True)
+                  temperature=0.8
+                  maximum=max(float(logits[i])/temperature for i in candidates)
+                  weights=[math.exp(float(logits[i])/temperature-maximum) for i in candidates]
+                  pick=rng.random()*sum(weights)
+                  next_id=candidates[-1]
+                  for idx,weight in zip(candidates,weights):
+                      pick-=weight
+                      if pick<=0:
+                          next_id=idx
                           break
-                  if next_id == eos:
-                      break
-                  ids.append(next_id)
-                  generated.append(next_id)
-              answer = tokenizer.decode(generated, skip_special_tokens=True)
-              print(f"\n===== {name.upper()} =====")
-              print("Generated token count:", len(generated))
-              print("Generated token IDs:", generated)
-              print("Answer:\n" + answer)
-              results.append({"test": name, "prompt": prompt, "token_count": len(generated), "token_ids": generated, "answer": answer})
-
-          Path("/tmp/nyxvault-answer.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+                  if eos is not None and next_id==eos: break
+                  ids.append(next_id); generated.append(next_id)
+              answer=tok.decode(generated,skip_special_tokens=True)
+              print(f"\n===== {name.upper()} =====\n{answer}")
+              if not answer.strip():
+                  raise SystemExit(f"Empty model response for {name}")
+              results.append({"test":name,"generated_tokens":len(generated),"answer":answer,"token_ids":generated})
+          Path("/tmp/nyx-package/inference_test.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf-8")
           PY
-          python /tmp/run_inference.py
 
-      - name: Upload real model answers
-        uses: actions/upload-artifact@v4
-        with:
-          name: NYXVAULT-chat-python-inference
-          path: /tmp/nyxvault-answer.json
-          if-no-files-found: error
+      - name: Assemble a single model bundle with the original base backup
+        run: |
+          python - <<'PY'
+          import hashlib, json, shutil
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_STORED, ZIP_DEFLATED
+          from tokenizers import Tokenizer
+          import torch
+          src=Path("/tmp/nyx-source")
+          pkg=Path("/tmp/nyx-package")
+          shutil.copy2(src/"tokenizer.json",pkg/"tokenizer.json")
+          shutil.copy2(src/"base_step_600.pt",pkg/"base_step_600_backup.pt")
+          checkpoint=pkg/"checkpoints/sft_step_100.pt"
+          shutil.copy2(checkpoint,pkg/"model.pt")
+          tokenizer=Tokenizer.from_file(str(pkg/"tokenizer.json"))
+          data=json.loads(tokenizer.to_str())
+          bpe=data.get("model",{})
+          if bpe.get("type")!="BPE" or not bpe.get("vocab") or not bpe.get("merges"):
+              raise SystemExit("Tokenizer is not compatible with Android ByteLevel BPE")
+          mobile={
+              "vocab":bpe["vocab"],
+              "merges":[" ".join(x) if isinstance(x,list) else str(x) for x in bpe["merges"]],
+              "unk_token":bpe.get("unk_token","[UNK]"),
+              "eos_token":"[EOS]",
+              "normalizer":"NFKC",
+              "pre_tokenizer":"ByteLevel"
+          }
+          (pkg/"tokenizer_mobile.json").write_text(json.dumps(mobile,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
+          corpus=src/"unified_training_corpus.jsonl"
+          shutil.copy2(corpus,pkg/"training_corpus.jsonl")
+          report=json.loads((src/"corpus_report.json").read_text(encoding="utf-8"))
+          ckpt=torch.load(pkg/"model.pt",map_location="cpu",weights_only=False)
+          manifest={
+              "name":"NYXVAULT",
+              "format_version":1,
+              "canonical_checkpoint":"model.pt",
+              "android_model":"model.onnx",
+              "tokenizer":"tokenizer.json",
+              "android_tokenizer":"tokenizer_mobile.json",
+              "base_backup":"base_step_600_backup.pt",
+              "base_pretraining_updates":600,
+              "shared_parent_checkpoint":"sft_step_50.pt",
+              "merged_sft_branches":{
+                  "chat_basics":{"checkpoint":"sft_step_100.pt","updates":50},
+                  "chat_python_v2":{"checkpoint":"sft_step_350.pt","updates":300},
+                  "russian_conversation":{"checkpoint":"sft_step_300.pt","updates":250},
+                  "shared_game_pilot_parent":{"checkpoint":"sft_step_50.pt","updates":50}
+              },
+              "merge_method":"average of the three independent task-vector deltas from the identical sft_step_50 parent, followed by joint SFT",
+              "joint_consolidation_updates":100,
+              "checkpoint_internal_step":int(ckpt.get("step",-1))+1,
+              "unique_update_budget_including_base":1350,
+              "training_corpus":report,
+              "checkpoint_sha256":hashlib.sha256((pkg/"model.pt").read_bytes()).hexdigest(),
+              "base_backup_sha256":hashlib.sha256((pkg/"base_step_600_backup.pt").read_bytes()).hexdigest()
+          }
+          (pkg/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+          archive=Path("NYXVAULT_MODEL.zip")
+          include=["model.pt","model.onnx","tokenizer.json","tokenizer_mobile.json","base_step_600_backup.pt","training_corpus.jsonl","manifest.json","inference_test.json"]
+          with ZipFile(archive,"w",ZIP_STORED,allowZip64=True) as z:
+              for name in include:
+                  p=pkg/name
+                  if not p.is_file(): raise SystemExit(f"Bundle member missing: {name}")
+                  z.write(p,name)
+          with ZipFile(archive) as z:
+              bad=z.testzip()
+              if bad: raise SystemExit("ZIP integrity failure: "+bad)
+              print("Single model bundle:",archive.stat().st_size,"bytes")
+              print("Files inside:",z.namelist())
+          print(json.dumps(manifest,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Store the single bundle in main using Git LFS
+        env:
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git lfs track "NYXVAULT_MODEL.zip"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .gitattributes NYXVAULT_MODEL.zip
+          git commit -m "Consolidate NYXVAULT into one canonical model bundle"
+          git push origin HEAD:main
