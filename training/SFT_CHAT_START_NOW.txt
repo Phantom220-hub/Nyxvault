@@ -1,3 +1,0 @@
-Authorized training run: continue from sft_step_50.pt with the Russian chat and Python basics dataset.
-
-Retry after allowing one-word greetings in the SFT schema.
