@@ -50,28 +50,31 @@ jobs:
           url="https://huggingface.co/datasets/ZeroAgency/ru-instruct-conversation-v1/resolve/main/data/train-00000-of-00001.parquet"
           urllib.request.urlretrieve(url,"/tmp/ru.parquet")
           df=pd.read_parquet("/tmp/ru.parquet")
+          print("Columns:",list(df.columns),"rows:",len(df))
+          def field(obj,key):
+              if isinstance(obj,dict): return obj.get(key)
+              try: return obj[key]
+              except Exception: return getattr(obj,key,None)
           out=[]; seen=set()
-          for row in df.itertuples():
-              conv=getattr(row,"conversation",None)
-              if not isinstance(conv,list): continue
+          for conv in df["conversation"].tolist():
+              if not isinstance(conv,(list,tuple)): continue
               messages=[]
               for m in conv:
-                  if isinstance(m,dict):
-                      role=str(m.get("role","")).lower()
-                      content=str(m.get("content","")).strip()
-                      if role in ("user","assistant") and content: messages.append((role,content))
+                  role=str(field(m,"role") or "").lower()
+                  content=str(field(m,"content") or "").strip()
+                  if role in ("user","assistant") and content: messages.append((role,content))
               for i in range(len(messages)-1):
                   if messages[i][0]=="user" and messages[i+1][0]=="assistant":
                       q,a=messages[i][1],messages[i+1][1]
-                      if not q or not a or len(q)>3500 or len(a)>3500: continue
-                      key=(q.strip(),a.strip())
+                      if len(q)>3500 or len(a)>3500: continue
+                      key=(q,a)
                       if key in seen: continue
                       seen.add(key)
                       out.append({"id":f"ruconv_{len(out)+1:06d}","level":1,"language":"python","topic":"input-output","type":"explain","instruction":q,"output":a,"license":"mit","tags":["russian_chat"],"source":"ZeroAgency/ru-instruct-conversation-v1"})
           random.Random(2026).shuffle(out)
           out=out[:6000]
           p=Path("training/data/russian_chat_prepared.jsonl"); p.parent.mkdir(parents=True,exist_ok=True)
-          p.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in out),encoding="utf-8")
+          p.write_text("".join(json.dumps(x,ensure_ascii=False)+"\\n" for x in out),encoding="utf-8")
           print("Prepared records:",len(out))
           if len(out)<500: raise SystemExit("Too few prepared examples")
           PY
