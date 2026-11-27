@@ -10,7 +10,7 @@ object ProgrammingPrompt {
     fun build(question: String, conversationContext: String = ""): String {
         val text = question.lowercase(Locale.ROOT)
         val projectRequest = listOf(
-            "создай игру", "создать игру", "сделай игру", "сделать игру",
+            "создай игру", "создать игру", "сделай игру", "сделать игру", "собери игру", "создай настоящую игру",
             "создай проект", "создать проект", "полный проект", "напиши игру",
             "make a game", "create a game", "build a project", "full project"
         ).any { text.contains(it) }
