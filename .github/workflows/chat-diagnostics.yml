@@ -72,8 +72,10 @@ jobs:
           print("ONNX bytes:", (out / "model.onnx").stat().st_size)
           PY
 
-      - name: Generate Python tokenizer golden vectors for Android
+      - name: Prepare Android tokenizer assets and generate Python golden vectors
         run: |
+          mkdir -p app/src/main/assets/nyxvault_model
+          cp artifacts/nyxvault_current/tokenizer_mobile.json app/src/main/assets/nyxvault_model/tokenizer_mobile.json
           python training/tokenizer_parity.py \
             --tokenizer artifacts/nyxvault_current/tokenizer.json \
             --output app/src/main/assets/nyxvault_model/tokenizer_parity_test.json
