@@ -6,10 +6,9 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/android.yml"
+      - "NYXVAULT_MODEL.zip"
+      - ".gitattributes"
       - "app/**"
-      - "training/export_mobile.py"
-      - "training/model.py"
-      - "training/requirements.txt"
 
 permissions:
   contents: write
@@ -18,8 +17,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout main and fetch the canonical model bundle from Git LFS
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -27,66 +29,87 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: training/requirements.txt
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Download the latest NYXVAULT checkpoint and matching tokenizer
+      - name: Install the current trained model and tokenizer into Android assets
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/nyxvault-base /tmp/nyxvault-model
-          curl -fL --retry 3 \
-            "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-weights-600/NYXVAULT_ALL_FILES.zip" \
-            -o /tmp/nyxvault-base.zip
-          unzip -q /tmp/nyxvault-base.zip -d /tmp/nyxvault-base
-          TOKENIZER="$(find /tmp/nyxvault-base -type f -path '*/artifacts/tokenizer.json' -print -quit)"
-          if [ -z "$TOKENIZER" ]; then
-            TOKENIZER="$(find /tmp/nyxvault-base -type f -name tokenizer.json -print -quit)"
-          fi
-          test -n "$TOKENIZER"
-          curl -fL --retry 3 \
-            "https://github.com/Phantom220-hub/Nyxvault/releases/download/nyxvault-sft-merged-projects-2026-11-27/sft_step_50.pt" \
-            -o /tmp/nyxvault-model/sft_step_50.pt
-          echo "TOKENIZER_PATH=$TOKENIZER" >> "$GITHUB_ENV"
+          test -s NYXVAULT_MODEL.zip
+          python3 - <<'PY'
+          import json, shutil
+          from pathlib import Path
+          from zipfile import ZipFile
 
-      - name: Export the trained checkpoint for Android
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install -r training/requirements.txt
-          mkdir -p app/src/main/assets/nyxvault_model
-          cd training
-          python export_mobile.py \
-            --checkpoint /tmp/nyxvault-model/sft_step_50.pt \
-            --tokenizer "$TOKENIZER_PATH" \
-            --out ../app/src/main/assets/nyxvault_model/nyxvault.onnx \
-            --quantize
-          cd ..
-          mv app/src/main/assets/nyxvault_model/nyxvault_int8.onnx \
-             app/src/main/assets/nyxvault_model/nyxvault.onnx
-          test -s app/src/main/assets/nyxvault_model/nyxvault.onnx
-          test -s app/src/main/assets/nyxvault_model/tokenizer_mobile.json
+          archive = Path("NYXVAULT_MODEL.zip")
+          assets = Path("app/src/main/assets/nyxvault_model")
+          assets.mkdir(parents=True, exist_ok=True)
+
+          with ZipFile(archive) as bundle:
+              bad = bundle.testzip()
+              if bad:
+                  raise SystemExit(f"Canonical model archive failed integrity check: {bad}")
+              required = {"model.onnx", "tokenizer_mobile.json", "manifest.json"}
+              names = set(bundle.namelist())
+              missing = required - names
+              if missing:
+                  raise SystemExit(f"Canonical model bundle is missing: {sorted(missing)}")
+
+              manifest = json.loads(bundle.read("manifest.json"))
+              if manifest.get("android_model") != "model.onnx":
+                  raise SystemExit("Manifest does not identify model.onnx as the Android model")
+              if manifest.get("android_tokenizer") != "tokenizer_mobile.json":
+                  raise SystemExit("Manifest does not identify tokenizer_mobile.json")
+
+              for member, target_name in (
+                  ("model.onnx", "nyxvault.onnx"),
+                  ("tokenizer_mobile.json", "tokenizer_mobile.json"),
+              ):
+                  target = assets / target_name
+                  with bundle.open(member) as source, target.open("wb") as destination:
+                      shutil.copyfileobj(source, destination)
+
+          tokenizer = json.loads((assets / "tokenizer_mobile.json").read_text(encoding="utf-8"))
+          if not tokenizer.get("vocab") or not tokenizer.get("merges"):
+              raise SystemExit("Android tokenizer is missing its vocabulary or BPE merges")
+          model_path = assets / "nyxvault.onnx"
+          if model_path.stat().st_size < 1_000_000:
+              raise SystemExit("Android ONNX model is unexpectedly small or incomplete")
+
+          print("Bundled canonical model:", model_path.stat().st_size, "bytes")
+          print("Bundled tokenizer entries:", len(tokenizer["vocab"]))
+          print("Canonical checkpoint step:", manifest.get("checkpoint_internal_step"))
+          print("Training records:", manifest.get("training_corpus", {}).get("total_records"))
+          PY
           ls -lh app/src/main/assets/nyxvault_model/
 
       - name: Run Kotlin unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
-      - name: Build APK with trained NYXVAULT model bundled
+      - name: Build APK with the latest NYXVAULT model bundled
         run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK contains the trained model and tokenizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'assets/nyxvault_model/nyxvault.onnx'
+          unzip -l "$APK" | grep -q 'assets/nyxvault_model/tokenizer_mobile.json'
+          echo "APK size:"
+          ls -lh "$APK"
+          echo "Embedded NYXVAULT model files:"
+          unzip -l "$APK" | grep 'assets/nyxvault_model/'
 
       - name: Publish direct APK download
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nyxvault-android-build-${{ github.run_number }}-${{ github.run_attempt }}
           name: NYXVAULT Android build ${{ github.run_number }}
-          body: APK built by GitHub Actions. Download app-debug.apk directly; no artifact ZIP extraction required.
+          body: APK contains the canonical merged NYXVAULT ONNX model and matching tokenizer from main/NYXVAULT_MODEL.zip.
           files: app/build/outputs/apk/debug/app-debug.apk
           fail_on_unmatched_files: true
