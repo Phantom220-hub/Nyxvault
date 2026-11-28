@@ -14,6 +14,14 @@ object ProgrammingPrompt {
             "создай проект", "создать проект", "полный проект", "напиши игру",
             "make a game", "create a game", "build a project", "full project"
         ).any { text.contains(it) }
+        val explicitCodingIntent = listOf(
+            "напиши код", "на python", "на питон", "программа", "программ", "код ",
+            "скрипт", "функци", "класс ", "алгоритм", "калькулятор", "исправь ошибку",
+            "найди ошибку", "godot", "gdscript", "kotlin", "javascript", "typescript",
+            "html", "css", "c++", "rust", "android"
+        ).any { text.contains(it) }
+        val ordinaryConversation = !projectRequest && !explicitCodingIntent &&
+            !text.contains("python") && !text.contains("питон")
 
         val language = when {
             text.contains("godot") || text.contains("gdscript") -> "gdscript"
@@ -24,7 +32,7 @@ object ProgrammingPrompt {
             text.contains("c++") -> "cpp"
             text.contains("rust") -> "rust"
             text.contains("python") || text.contains("питон") -> "python"
-            else -> "python"
+            else -> if (ordinaryConversation) "ru" else "python"
         }
 
         val level: Int
@@ -40,7 +48,12 @@ object ProgrammingPrompt {
             }
             taskType = "design"
         } else {
-            when (language) {
+            if (ordinaryConversation) {
+                level = 1
+                topic = "general-conversation"
+                taskType = if (listOf("что такое", "объясни", "расскажи", "почему", "как работает", "что значит")
+                    .any { text.contains(it) }) "explain" else "dialogue"
+            } else when (language) {
                 "gdscript" -> {
                     level = 7
                     topic = "godot-gdscript"
