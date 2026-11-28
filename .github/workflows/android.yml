@@ -90,8 +90,8 @@ jobs:
           print("Training records:", manifest.get("training_corpus", {}).get("total_records"))
           PY
           python3 -m pip install --quiet tokenizers
-          python3 training/tokenizer_parity.py \\
-            --tokenizer /tmp/nyxvault-tokenizer/tokenizer.json \\
+          python3 training/tokenizer_parity.py \
+            --tokenizer /tmp/nyxvault-tokenizer/tokenizer.json \
             --output app/src/main/assets/nyxvault_model/tokenizer_parity_test.json
           ls -lh app/src/main/assets/nyxvault_model/
 
