@@ -14,14 +14,21 @@ object ProgrammingPrompt {
             "создай проект", "создать проект", "полный проект", "напиши игру",
             "make a game", "create a game", "build a project", "full project"
         ).any { text.contains(it) }
+        val asksToCreate = listOf("напиши ", "создай ", "сделай ", "реализуй ").any {
+            text.contains(it)
+        }
+        val programArtifact = listOf(
+            "код", "программу", "скрипт", "функцию", "класс", "алгоритм",
+            "калькулятор", "html", "кнопку", "сайт", "страницу", "форму",
+            "приложение", "игру", "бота"
+        ).any { text.contains(it) }
         val explicitCodingIntent = listOf(
             "напиши код", "покажи код", "пример кода", "напиши программу",
             "создай программу", "сделай программу", "напиши скрипт", "создай скрипт",
             "напиши функцию", "реализуй функцию", "создай класс", "реализуй класс",
             "напиши алгоритм", "реализуй алгоритм", "напиши калькулятор",
-            "сделай калькулятор", "исправь ошибку", "найди ошибку", "отладь код",
-            "godot", "gdscript", "создай приложение", "собери приложение"
-        ).any { text.contains(it) }
+            "сделай калькулятор", "исправь ошибку", "найди ошибку", "отладь код"
+        ).any { text.contains(it) } || (asksToCreate && programArtifact)
         val ordinaryConversation = !projectRequest && !explicitCodingIntent
 
         val language = when {
