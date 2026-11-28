@@ -16,18 +16,26 @@ from tokenizers import Tokenizer
 
 
 WORD_RE = re.compile(r"[\w]+", re.UNICODE)
+CHECK_WEIGHTS = {
+    "non_empty": 10,
+    "no_prompt_template_leak": 10,
+    "not_obviously_repetitive": 10,
+    "minimum_answer_length": 10,
+    "contains_expected_concept_words": 60,
+}
 
 
 def score_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]:
-    """Use transparent lexical/format checks, not an LLM judge."""
+    """Score content requirements much more heavily than superficial formatting."""
     text = answer.strip()
-    words = WORD_RE.findall(text.casefold())
+    folded = text.casefold()
+    words = WORD_RE.findall(folded)
     unique_ratio = len(set(words)) / len(words) if words else 0.0
     expected_groups = case.get("must_include_any", [])
-    expected_ok = all(
-        any(str(term).casefold() in text.casefold() for term in group)
-        for group in expected_groups
-    )
+    missing_groups = [
+        group for group in expected_groups
+        if not any(str(term).casefold() in folded for term in group)
+    ]
     checks = {
         "non_empty": bool(text),
         "no_prompt_template_leak": not any(
@@ -36,14 +44,16 @@ def score_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]:
         "not_obviously_repetitive": (
             unique_ratio >= 0.30 if len(words) > 4 else len(words) > 0
         ) and not re.search(r"\b(\w+)(?:\s+\1){3,}\b", text, re.IGNORECASE),
-        "contains_expected_concept_words": expected_ok,
+        "minimum_answer_length": len(words) >= int(case.get("min_words", 3)),
+        "contains_expected_concept_words": not missing_groups,
     }
-    points = sum(25 for passed in checks.values() if passed)
+    points = sum(CHECK_WEIGHTS[name] for name, passed in checks.items() if passed)
     return {
         "checks": checks,
         "heuristic_score": points,
         "word_count": len(words),
         "unique_word_ratio": round(unique_ratio, 3),
+        "missing_expected_groups": missing_groups,
     }
 
 
@@ -102,6 +112,8 @@ def load_cases(path: str | Path) -> list[dict[str, Any]]:
                 raise ValueError(f"{path}:{line_number}: each case needs id and prompt")
             if not isinstance(item.get("must_include_any", []), list):
                 raise ValueError(f"{path}:{line_number}: must_include_any must be a list")
+            if int(item.get("min_words", 3)) < 1:
+                raise ValueError(f"{path}:{line_number}: min_words must be positive")
             cases.append(item)
     if not cases:
         raise ValueError("No evaluation cases were found")
@@ -146,8 +158,11 @@ def run_evaluation(
             sum(item["heuristic_score"] for item in case_results) / total, 1
         ),
         "non_empty_answers": sum(bool(item["answer"]) for item in case_results),
-        "rubric_keyword_passes": sum(
+        "content_requirement_passes": sum(
             item["checks"]["contains_expected_concept_words"] for item in case_results
+        ),
+        "minimum_length_passes": sum(
+            item["checks"]["minimum_answer_length"] for item in case_results
         ),
         "clean_format_answers": sum(
             item["checks"]["no_prompt_template_leak"] for item in case_results
@@ -157,14 +172,15 @@ def run_evaluation(
         ),
     }
     return {
-        "format": 1,
+        "format": 2,
         "model": str(model_path),
         "tokenizer": str(tokenizer_path),
         "seed": seed,
+        "scoring_weights": CHECK_WEIGHTS,
         "scoring_note": (
-            "This is a deterministic smoke benchmark with simple keyword and repetition "
-            "heuristics. It is not proof of semantic understanding or factual correctness; "
-            "read every transcript and add human-reviewed reference answers."
+            "Most points require the expected concept terms. This remains a simple "
+            "keyword/format smoke benchmark, not a proof of semantic correctness; "
+            "human review and reference-answer tests are still required."
         ),
         "summary": summary,
         "results": case_results,
