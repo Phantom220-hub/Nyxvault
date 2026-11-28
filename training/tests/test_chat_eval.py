@@ -32,5 +32,24 @@ class ChatEvaluationTests(unittest.TestCase):
         self.assertFalse(result["checks"]["no_prompt_template_leak"])
 
 
+    def test_every_required_concept_group_must_be_present(self):
+        result = score_answer(
+            "Переменная хранит значение.",
+            {"must_include_groups": [["переменная"], ["значение"], ["пример"]]},
+        )
+        self.assertFalse(result["checks"]["contains_expected_concept_words"])
+        self.assertEqual(len(result["missing_expected_groups"]), 1)
+
+    def test_code_answer_requires_the_expected_fence(self):
+        result = score_answer(
+            "def square(x): return x ** 2",
+            {
+                "must_include_groups": [["def "], ["return"], ["** 2"]],
+                "expected_code_language": "python",
+            },
+        )
+        self.assertFalse(result["checks"]["expected_code_format"])
+
+
 if __name__ == "__main__":
     unittest.main()
