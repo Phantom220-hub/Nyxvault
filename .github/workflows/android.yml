@@ -2,13 +2,6 @@ name: NYXVAULT Android APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/android.yml"
-      - "NYXVAULT_MODEL.zip"
-      - ".gitattributes"
-      - "app/**"
 
 permissions:
   contents: write
@@ -33,6 +26,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Python for tokenizer parity fixtures
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -51,6 +49,8 @@ jobs:
           archive = Path("NYXVAULT_MODEL.zip")
           assets = Path("app/src/main/assets/nyxvault_model")
           assets.mkdir(parents=True, exist_ok=True)
+          tokenizer_source = Path("/tmp/nyxvault-tokenizer/tokenizer.json")
+          tokenizer_source.parent.mkdir(parents=True, exist_ok=True)
 
           with ZipFile(archive) as bundle:
               bad = bundle.testzip()
@@ -63,6 +63,7 @@ jobs:
                   raise SystemExit(f"Canonical model bundle is missing: {sorted(missing)}")
 
               manifest = json.loads(bundle.read("manifest.json"))
+              tokenizer_source.write_bytes(bundle.read("tokenizer.json"))
               if manifest.get("android_model") != "model.onnx":
                   raise SystemExit("Manifest does not identify model.onnx as the Android model")
               if manifest.get("android_tokenizer") != "tokenizer_mobile.json":
@@ -88,6 +89,10 @@ jobs:
           print("Canonical checkpoint step:", manifest.get("checkpoint_internal_step"))
           print("Training records:", manifest.get("training_corpus", {}).get("total_records"))
           PY
+          python3 -m pip install --quiet tokenizers
+          python3 training/tokenizer_parity.py \\
+            --tokenizer /tmp/nyxvault-tokenizer/tokenizer.json \\
+            --output app/src/main/assets/nyxvault_model/tokenizer_parity_test.json
           ls -lh app/src/main/assets/nyxvault_model/
 
       - name: Run Kotlin unit tests
