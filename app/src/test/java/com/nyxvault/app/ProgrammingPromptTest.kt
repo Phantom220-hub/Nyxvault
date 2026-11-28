@@ -23,6 +23,34 @@ class ProgrammingPromptTest {
         assertTrue(prompt.contains("### Language: gdscript"))
     }
 
+
+    @Test
+    fun greetingUsesTheSameMetadataAsTheTrainingChatExamples() {
+        val prompt = ProgrammingPrompt.build("Привет!")
+        assertTrue(prompt.contains("### Level: 1"))
+        assertTrue(prompt.contains("### Topic: input-output"))
+        assertTrue(prompt.contains("### Task type: explain"))
+        assertTrue(prompt.contains("### Language: python"))
+    }
+
+    @Test
+    fun explainingAProgrammingConceptIsNotMisroutedAsCodeGeneration() {
+        val prompt = ProgrammingPrompt.build(
+            "Объясни простыми словами, что такое переменная в программировании."
+        )
+        assertTrue(prompt.contains("### Topic: variables-and-types"))
+        assertTrue(prompt.contains("### Task type: explain"))
+        assertTrue(prompt.contains("### Language: python"))
+    }
+
+    @Test
+    fun explainingIntAndStrUsesTheVariablesTopic() {
+        val prompt = ProgrammingPrompt.build("Чем тип int отличается от str в Python?")
+        assertTrue(prompt.contains("### Topic: variables-and-types"))
+        assertTrue(prompt.contains("### Task type: explain"))
+        assertTrue(prompt.contains("### Language: python"))
+    }
+
     @Test
     fun previousContextIsKeptInsideTheTaskSection() {
         val prompt = ProgrammingPrompt.build("Добавь сохранение", "У нас уже есть игра на Godot.")
