@@ -117,8 +117,13 @@ def load_cases(path: str | Path) -> list[dict[str, Any]]:
                 raise ValueError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
             if not isinstance(item, dict) or not item.get("id") or not item.get("prompt"):
                 raise ValueError(f"{path}:{line_number}: each case needs id and prompt")
-            if not isinstance(item.get("must_include_any", []), list):
-                raise ValueError(f"{path}:{line_number}: must_include_any must be a list")
+            groups = item.get("must_include_groups", item.get("must_include_any", []))
+            if not isinstance(groups, list) or any(
+                not isinstance(group, list) or not group for group in groups
+            ):
+                raise ValueError(
+                    f"{path}:{line_number}: must_include_groups must be a list of non-empty alternative lists"
+                )
             if int(item.get("min_words", 3)) < 1:
                 raise ValueError(f"{path}:{line_number}: min_words must be positive")
             cases.append(item)
