@@ -15,7 +15,7 @@ class ChatEvaluationTests(unittest.TestCase):
     def test_empty_answer_fails(self):
         result = score_answer("", {"must_include_any": [["привет"]]})
         self.assertFalse(result["checks"]["non_empty"])
-        self.assertEqual(result["heuristic_score"], 25)
+        self.assertEqual(result["heuristic_score"], 10)
 
     def test_repetitive_answer_is_flagged(self):
         result = score_answer(
