@@ -596,6 +596,10 @@ class MainActivity : Activity() {
             assets.open("nyxvault_model/$name").use { source ->
                 temporary.outputStream().use { destination -> source.copyTo(destination) }
             }
+            if (target.exists() && !target.delete()) {
+                temporary.delete()
+                throw IllegalStateException("Не удалось заменить старый файл модели: $name")
+            }
             if (!temporary.renameTo(target)) {
                 temporary.delete()
                 throw IllegalStateException("Не удалось обновить встроенный файл модели: $name")
