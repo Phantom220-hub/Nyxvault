@@ -15,13 +15,14 @@ object ProgrammingPrompt {
             "make a game", "create a game", "build a project", "full project"
         ).any { text.contains(it) }
         val explicitCodingIntent = listOf(
-            "напиши код", "на python", "на питон", "программа", "программ", "код ",
-            "скрипт", "функци", "класс ", "алгоритм", "калькулятор", "исправь ошибку",
-            "найди ошибку", "godot", "gdscript", "kotlin", "javascript", "typescript",
-            "html", "css", "c++", "rust", "android"
+            "напиши код", "покажи код", "пример кода", "напиши программу",
+            "создай программу", "сделай программу", "напиши скрипт", "создай скрипт",
+            "напиши функцию", "реализуй функцию", "создай класс", "реализуй класс",
+            "напиши алгоритм", "реализуй алгоритм", "напиши калькулятор",
+            "сделай калькулятор", "исправь ошибку", "найди ошибку", "отладь код",
+            "godot", "gdscript", "создай приложение", "собери приложение"
         ).any { text.contains(it) }
-        val ordinaryConversation = !projectRequest && !explicitCodingIntent &&
-            !text.contains("python") && !text.contains("питон")
+        val ordinaryConversation = !projectRequest && !explicitCodingIntent
 
         val language = when {
             text.contains("godot") || text.contains("gdscript") -> "gdscript"
@@ -32,7 +33,7 @@ object ProgrammingPrompt {
             text.contains("c++") -> "cpp"
             text.contains("rust") -> "rust"
             text.contains("python") || text.contains("питон") -> "python"
-            else -> if (ordinaryConversation) "ru" else "python"
+            else -> "python"
         }
 
         val level: Int
@@ -50,9 +51,19 @@ object ProgrammingPrompt {
         } else {
             if (ordinaryConversation) {
                 level = 1
-                topic = "general-conversation"
-                taskType = if (listOf("что такое", "объясни", "расскажи", "почему", "как работает", "что значит")
-                    .any { text.contains(it) }) "explain" else "dialogue"
+                topic = when {
+                    text.contains("перем") || text.contains("тип int") ||
+                        text.contains("тип str") || text.contains(" int ") ||
+                        text.contains(" str ") -> "variables-and-types"
+                    text.contains("цикл") || text.contains(" for ") ||
+                        text.contains(" while ") -> "loops"
+                    text.contains("функци") -> "functions-basics"
+                    text.contains("спис") || text.contains("list") -> "lists-and-indexing"
+                    text.contains("словар") || text.contains("dict") -> "dicts-and-sets"
+                    text.contains("ошиб") -> "reading-error-messages"
+                    else -> "input-output"
+                }
+                taskType = "explain"
             } else when (language) {
                 "gdscript" -> {
                     level = 7
