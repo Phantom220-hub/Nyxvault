@@ -200,7 +200,26 @@ class MainActivity : Activity() {
         if (handleMemoryCommand(question)) return
         // A greeting is conversation, not a research query. Never send it to the web scraper.
         if (isCasualGreeting(question)) {
-            addMessage("Привет! Рад начать разговор. Чем займёмся?", false)
+            if (!brain.hasTransformer) {
+                addMessage("Привет! Я NYXVAULT. Чем займёмся?", false)
+                return
+            }
+            busy = true
+            status.text = "● NYXVAULT THINKING • отвечаю локальной моделью..."
+            val greetingContext = conversationMemory.recent().takeLast(6).joinToString("\n") { row ->
+                (if (row.first) "Пользователь: " else "NYXVAULT: ") + row.second
+            }
+            Thread {
+                val generated = brain.generateReply(question, greetingContext)
+                runOnUiThread {
+                    addMessage(
+                        generated ?: "Модель не смогла сформировать ответ. Попробуй ещё раз.",
+                        false
+                    )
+                    busy = false
+                    updateStatus()
+                }
+            }.start()
             return
         }
         val isFollowUp = listOf("а почему", "почему", "подробнее", "а пример", "пример", "а как", "что дальше", "и что", "чаро", "мисол").any {
@@ -565,15 +584,26 @@ class MainActivity : Activity() {
     }
 
     private fun installBundledModel() {
+        val installedVersion = getSharedPreferences("nyxvault", MODE_PRIVATE)
+            .getInt("bundled_model_version_code", 0)
+        val appVersion = packageManager.getPackageInfo(packageName, 0).versionCode
+        if (installedVersion >= appVersion) return
+
         val directory = File(filesDir, "nyxvault_model").apply { mkdirs() }
         listOf("nyxvault.onnx", "tokenizer_mobile.json").forEach { name ->
             val target = File(directory, name)
-            if (!target.isFile || target.length() == 0L) {
-                assets.open("nyxvault_model/$name").use { source ->
-                    target.outputStream().use { destination -> source.copyTo(destination) }
-                }
+            val temporary = File(directory, "$name.tmp")
+            assets.open("nyxvault_model/$name").use { source ->
+                temporary.outputStream().use { destination -> source.copyTo(destination) }
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.delete()
+                throw IllegalStateException("Не удалось обновить встроенный файл модели: $name")
             }
         }
+        getSharedPreferences("nyxvault", MODE_PRIVATE).edit()
+            .putInt("bundled_model_version_code", appVersion)
+            .apply()
     }
 
     private fun reloadTransformer(notify: Boolean) {
