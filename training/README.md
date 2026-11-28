@@ -9,6 +9,15 @@ All model source code and training data live in this repository. The current mod
 - `.github/workflows/model-inference-test.yml` is the only active model-training workflow. It reads the root bundle from Git LFS, adds validated data from `training/data/*.jsonl`, resumes directly from the bundle's `model.pt`, exports and checks ONNX inference, then updates the same `NYXVAULT_MODEL.zip` in `main`.
 - Push new JSONL training examples to `training/data/`, or start the workflow with GitHub Actions `workflow_dispatch`. Do not start separate SFT pipelines or publish independent checkpoint artifacts/releases.
 
+
+## Tokenizer parity and live chat diagnostics
+
+- `training/tokenizer_parity.py` creates golden token-ID vectors from the canonical Python tokenizer. The Android unit test compares its ByteLevel BPE implementation against those vectors for Russian, Tajik, English, accented text, emoji, whitespace and code.
+- `training/chat_eval_cases.jsonl` contains held-out prompts for greetings, explanations, code generation and a short context-follow-up.
+- `training/chat_eval.py` runs the current ONNX model with a fixed seed and records the exact replies plus basic format, repetition and keyword checks.
+- Run the read-only workflow `.github/workflows/chat-diagnostics.yml` to test the current model bundle. It does not train weights, replace the canonical model or build an APK.
+- The automatic score is only a transparent heuristic. It cannot establish that an answer is correct; every transcript still needs human review and stronger reference-answer tests.
+
 ## Source code
 
 - `model.py`: decoder-only GPT-style Transformer.
