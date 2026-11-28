@@ -18,7 +18,7 @@ class ByteLevelBpeTokenizer(json: String) {
     private val unicodeToByte = HashMap<Char, Int>()
 
     private val splitPattern = Pattern.compile(
-        "(?i:'s|'t|'re|'ve|'m|'ll|'d)| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+",
+        "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+",
         Pattern.UNICODE_CHARACTER_CLASS
     )
 
