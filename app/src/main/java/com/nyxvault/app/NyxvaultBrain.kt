@@ -21,6 +21,16 @@ class NyxvaultBrain : Closeable {
     fun academyResponse(question: String, teacherMode: Boolean = false): String? =
         AcademyEngine.respond(question, teacherMode)
 
+    fun generateReply(question: String, conversationContext: String = ""): String? {
+        val model = transformer ?: return null
+        val generated = try {
+            model.generate(ProgrammingPrompt.build(question, conversationContext)).trim()
+        } catch (_: Exception) {
+            ""
+        }
+        return generated.takeIf { it.isNotBlank() }
+    }
+
     fun answer(question: String, examples: List<Example>, conversationContext: String = ""): String {
         LinearEquationSolver.solve(question)?.let { return it }
         MathSolver.solve(question)?.let { return it }
