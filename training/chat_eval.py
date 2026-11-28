@@ -21,7 +21,8 @@ CHECK_WEIGHTS = {
     "no_prompt_template_leak": 10,
     "not_obviously_repetitive": 10,
     "minimum_answer_length": 10,
-    "contains_expected_concept_words": 60,
+    "contains_expected_concept_words": 50,
+    "expected_code_format": 10,
 }
 
 
@@ -31,11 +32,16 @@ def score_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]:
     folded = text.casefold()
     words = WORD_RE.findall(folded)
     unique_ratio = len(set(words)) / len(words) if words else 0.0
-    expected_groups = case.get("must_include_any", [])
+    expected_groups = case.get("must_include_groups", case.get("must_include_any", []))
     missing_groups = [
         group for group in expected_groups
         if not any(str(term).casefold() in folded for term in group)
     ]
+    expected_code_language = case.get("expected_code_language")
+    expected_code_format = (
+        True if not expected_code_language
+        else f"```{str(expected_code_language).casefold()}" in folded
+    )
     checks = {
         "non_empty": bool(text),
         "no_prompt_template_leak": not any(
@@ -46,6 +52,7 @@ def score_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]:
         ) and not re.search(r"\b(\w+)(?:\s+\1){3,}\b", text, re.IGNORECASE),
         "minimum_answer_length": len(words) >= int(case.get("min_words", 3)),
         "contains_expected_concept_words": not missing_groups,
+        "expected_code_format": expected_code_format,
     }
     points = sum(CHECK_WEIGHTS[name] for name, passed in checks.items() if passed)
     return {
@@ -160,6 +167,9 @@ def run_evaluation(
         "non_empty_answers": sum(bool(item["answer"]) for item in case_results),
         "content_requirement_passes": sum(
             item["checks"]["contains_expected_concept_words"] for item in case_results
+        ),
+        "expected_code_format_passes": sum(
+            item["checks"]["expected_code_format"] for item in case_results
         ),
         "minimum_length_passes": sum(
             item["checks"]["minimum_answer_length"] for item in case_results
