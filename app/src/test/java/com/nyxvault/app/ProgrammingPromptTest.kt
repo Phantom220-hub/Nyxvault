@@ -51,6 +51,17 @@ class ProgrammingPromptTest {
         assertTrue(prompt.contains("### Language: python"))
     }
 
+
+    @Test
+    fun htmlButtonRequestIsStillRoutedToCodeGeneration() {
+        val prompt = ProgrammingPrompt.build(
+            "Напиши минимальную HTML-кнопку с текстом Нажми меня."
+        )
+        assertTrue(prompt.contains("### Topic: concurrency-and-async"))
+        assertTrue(prompt.contains("### Task type: write_code"))
+        assertTrue(prompt.contains("### Language: javascript"))
+    }
+
     @Test
     fun previousContextIsKeptInsideTheTaskSection() {
         val prompt = ProgrammingPrompt.build("Добавь сохранение", "У нас уже есть игра на Godot.")
